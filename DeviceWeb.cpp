@@ -1,6 +1,7 @@
 #include "DeviceState.h"
 #include "ControlLogic.h"
 #include "WebStyle.h"
+#include "WebClient.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
@@ -15,6 +16,7 @@ WebServer server(80);
 DNSServer dns;
 String hotspotName, csrf;
 bool mdnsStarted = false;
+bool apiRequest = false;
 bool hotspot = false;
 bool reconnectRequested = false;
 unsigned long disconnectedSince = 0, connectedSince = 0, rebootAt = 0;
@@ -32,6 +34,29 @@ String escape(const String& value) {
     }
   }
   return out;
+}
+String jsonString(const String& value) {
+  String result = "\"";
+  for (size_t i = 0; i < value.length(); ++i) {
+    unsigned char c = value[i];
+    if (c == '"' || c == '\\') { result += '\\'; result += char(c); }
+    else if (c < 32) { char escaped[7]; snprintf(escaped, sizeof(escaped), "\\u%04x", c); result += escaped; }
+    else result += char(c);
+  }
+  return result + "\"";
+}
+String jsonNumber(float value) { return isfinite(value) && value != -127.0f ? String(value, 2) : String("null"); }
+const char* jsonBool(bool value) { return value ? "true" : "false"; }
+void sendJson(const String& body, int code = 200) {
+  server.sendHeader("Cache-Control", "no-store");
+  server.sendHeader("X-Content-Type-Options", "nosniff");
+  server.send(code, "application/json; charset=utf-8", body);
+}
+void jsonError(const String& error, int code) { sendJson("{\"error\":" + jsonString(error) + "}", code); }
+void registerForm(const char* path, const std::function<void()>& handler) {
+  server.on(path, HTTP_POST, handler);
+  String apiPath = String("/api") + path;
+  server.on(apiPath.c_str(), HTTP_POST, [handler] { apiRequest = true; handler(); apiRequest = false; });
 }
 String timeText(int minute) {
   char buf[6]; snprintf(buf, sizeof(buf), "%02d:%02d", minute / 60, minute % 60); return buf;
@@ -61,7 +86,8 @@ bool authorized() {
 bool validPost() {
   if (!authorized()) return false;
   if (!server.hasArg("csrf") || server.arg("csrf") != csrf) {
-    server.send(403, "text/plain", "This form has expired. Reload the page and try again."); return false;
+    if (apiRequest) jsonError("This form has expired. Open the dashboard again and retry.", 403);
+    else server.send(403, "text/plain", "This form has expired. Reload the page and try again."); return false;
   }
   return true;
 }
@@ -77,12 +103,9 @@ String beginning() {
   html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Lizard Lamps</title>";
   html += FPSTR(WebStyle); html += "</head><body>"; return html;
 }
-String ending(bool refresh = false) {
-  String html = "<script>document.querySelectorAll('form').forEach(f=>f.addEventListener('submit',()=>{f.querySelectorAll('.epoch').forEach(e=>e.value=Math.floor(Date.now()/1000))}));";
-  if (refresh) html += "setTimeout(()=>{if(!document.hidden)location.reload()},10000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)location.reload()});";
-  html += "</script></body></html>"; return html;
-}
+String ending() { return String(FPSTR(WebClient)) + "</body></html>"; }
 void redirect(const String& path) {
+  if (apiRequest) { sendJson("{\"ok\":true,\"next\":" + jsonString(path) + "}"); return; }
   server.sendHeader("Location", path); server.send(303, "text/plain", "Saved");
 }
 void bootstrapClock() {
@@ -93,11 +116,19 @@ void bootstrapClock() {
   if (*end || epoch < 1704067200 || epoch >= 4102444800LL) return;
   timeval tv = {static_cast<time_t>(epoch), 0}; settimeofday(&tv, nullptr);
 }
+String adminFields(bool initial, const DeviceConfig& config) {
+  bool enabled = initial || config.adminPassword[0];
+  String h = "<label class='gap'><input type='checkbox' name='protectAdmin' value='1' data-admin-toggle" + String(enabled ? " checked" : "") + "> Require a password to manage this device</label>";
+  h += "<label>" + String(initial ? "Choose a dashboard password" : "Dashboard password") + "<input type='password' name='adminPassword' data-admin-password minlength='8' maxlength='63' autocomplete='new-password'></label>";
+  h += "<p class='muted small'>When enabled, sign in as <strong>admin</strong>. Use 8–63 characters." + String(initial ? "" : " Leave the password blank to keep your current password when protection is already on.") + " When off, anyone connected to the network can manage this device.</p>";
+  return h;
+}
 String wifiForm(bool initial, const DeviceConfig& c) {
   String h = formStart("/wifi");
+  if (initial) h += "<input type='hidden' name='adminCurrent' value='0' data-admin-current>";
   h += "<label for='ssid'>Wi-Fi network name</label><input id='ssid' name='ssid' autocomplete='off' required maxlength='32' value='" + escape(c.ssid) + "'>";
   h += "<div class='gap'><label for='wifiPassword'>Wi-Fi password</label><input id='wifiPassword' name='wifiPassword' type='password' maxlength='63' autocomplete='new-password'><p class='muted small'>Enter the network password. Leave empty only for an open network. 2.4GHz Wi-Fi is required.</p></div>";
-  if (initial) h += "<label for='adminPassword'>Choose a dashboard password</label><input id='adminPassword' type='password' name='adminPassword' required minlength='8' maxlength='63' autocomplete='new-password'><p class='muted small'>At least 8 characters. Sign in later with username <strong>admin</strong>.</p>";
+  if (initial) h += adminFields(true, c);
   h += "<button type='submit'>"; h += initial ? "Connect & continue →" : "Save Wi-Fi details"; h += "</button></form>";
   return h;
 }
@@ -111,10 +142,11 @@ String timeline(const DeviceConfig& c) {
   return h + "</div><div class='ticks'><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div class='legend'><span><i class='swatch'></i>Day · Lamp 1</span><span><i class='swatch purple'></i>Night · Lamp 2</span></div>";
 }
 void render(const String& error = "", int code = 200, const String& forcedView = "") {
+  if (apiRequest) { jsonError(error, code); return; }
   DeviceConfig c = configSnapshot(); DeviceStatus s = statusSnapshot();
   String h = beginning();
   if (!c.ssid[0]) {
-    h += "<div class='setup-shell'><div class='welcome'>" + brand() + "<div class='card'><span class='eyebrow'>Welcome home</span><h1>A little warmth.<br>A smarter habitat.</h1><p class='muted'>Connect your controller to Wi-Fi to start setting up your enclosure.</p>";
+    h += "<div class='setup-shell'><div class='welcome'>" + brand() + "<div class='card'><span class='eyebrow'>Welcome home</span><h1>A little warmth.<br>A smarter habitat.</h1><div id='live-message' class='notice' role='status' hidden></div><p class='muted'>Connect your controller to Wi-Fi to start setting up your enclosure.</p>";
     if (error.length()) h += "<div class='notice error' role='alert'>" + escape(error) + "</div>";
     h += wifiForm(true, c) + "</div><p class='footer'>Join LizardLamps-XXXXXX without a password, then open <a href='http://192.168.4.1'>http://192.168.4.1</a>. Heating stays off during setup.</p></div></div>" + ending(); sendPage(h, code); return;
   }
@@ -124,25 +156,25 @@ void render(const String& error = "", int code = 200, const String& forcedView =
   const char* views[] = {"monitor", "schedule", "settings", "device"};
   const char* labels[] = {"Overview", "Schedule & temps", "Probes", "Device"};
   for (int i = 0; i < 4; ++i) h += "<a class='" + String(view == views[i] ? "active" : "") + "' href='/?view=" + views[i] + "'>" + labels[i] + "</a>";
-  h += "</nav></div><div class='sidefoot'><span class='dot'></span>On-device control<br>Europe/London · 50Hz</div></aside><main>";
+  h += "</nav></div><div class='sidefoot'><span class='dot'></span>On-device control<br>Europe/London · 50Hz</div></aside><main><div id='live-message' class='notice' role='status' hidden></div>";
   if (error.length()) h += "<div class='notice error' role='alert'>" + escape(error) + "</div>";
   if (server.hasArg("saved")) h += "<div class='notice success' role='status'>Your changes have been saved.</div>";
   if (hotspot) {
     if (WiFi.status() == WL_CONNECTED) h += "<div class='notice success'>Connected to Wi-Fi. Rejoin your usual network and open <a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a>. You can also use <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a> on your home Wi-Fi. This setup hotspot closes after two minutes.</div>";
     else h += "<div class='notice'>Setup hotspot is active. Waiting to connect to <strong>" + escape(c.ssid) + "</strong>. Check your Wi-Fi details on the <a href='/?view=device'>Device page</a> if connection fails.</div>";
   }
-  if (!c.targetsSet || !c.scheduleSet) h += "<div class='notice'>Finish setup: save your <a href='/?view=schedule'>day and night schedule with temperature targets</a>. Heating stays off until the schedule is saved and the clock is ready.</div>";
+  if (!c.targetsSet || !c.scheduleSet) h += "<div id='setup-notice' class='notice'>Finish setup: save your <a href='/?view=schedule'>day and night schedule with temperature targets</a>. Heating stays off until the schedule is saved and the clock is ready.</div>";
   const char* title = view == "monitor" ? "Your habitat, at a glance." : view == "schedule" ? "A rhythm for every day." : view == "settings" ? "Know your probes." : "Make it yours.";
-  h += "<header class='head'><div><span class='eyebrow'>" + String(view == "monitor" ? "Live conditions" : "Controller settings") + "</span><h1>" + title + "</h1><span class='muted'>" + clockText() + "</span></div><span class='pill'>" + String(WiFi.status() == WL_CONNECTED ? "● Wi-Fi connected" : "○ Wi-Fi offline") + "</span></header>";
+  h += "<header class='head'><div><span class='eyebrow'>" + String(view == "monitor" ? "Live conditions" : "Controller settings") + "</span><h1>" + title + "</h1><span class='muted' id='controller-clock'>" + clockText() + "</span></div><span class='pill' id='connectivity'>" + String(WiFi.status() == WL_CONNECTED ? "● Wi-Fi connected" : "○ Wi-Fi offline") + "</span></header>";
   if (view == "monitor") {
-    if (!s.sensorsHealthy || !s.dimmerOnline || !s.clockValid) h += "<div class='notice error' role='alert'>Heating paused — " + String(!s.sensorsHealthy ? "check both temperature probes and temperature limits." : !s.dimmerOnline ? "zero-cross detection is unavailable." : "waiting for a valid clock. Use your browser time below, or wait for network time.") + "</div>";
-    if (!s.clockValid) h += formStart("/clock") + "<button>Use browser time</button></form><p class='muted small'>Check your phone or computer clock first.</p>";
+    String fault = !s.sensorsHealthy ? "check both temperature probes and temperature limits." : !s.dimmerOnline ? "zero-cross detection is unavailable." : !s.clockValid ? "waiting for a valid clock." : "";
+    h += "<div id='heating-fault' class='notice error' role='alert'" + String(fault.isEmpty() ? " hidden" : "") + ">" + (fault.isEmpty() ? String("") : String("Heating paused — ") + fault) + "</div><div id='clock-action'" + String(s.clockValid ? " hidden" : "") + ">" + formStart("/clock") + "<button>Use browser time</button></form><p class='muted small'>Check your phone or computer clock first.</p></div>";
     h += "<div class='grid'>";
     const char* names[] = {"Basking spot", "Ambient"};
     for (int i = 0; i < 2; ++i) {
-      h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "<span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong>" + String(isfinite(s.targets[i]) ? String(s.targets[i], 1) + "°C" : "—") + "</strong></div></section>";
+      h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'><span data-temperature='" + String(i) + "'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "</span><span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong data-target='" + String(i) + "'>" + String(isfinite(s.targets[i]) ? String(s.targets[i], 1) + "°C" : "—") + "</strong></div></section>";
     }
-    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2>" + String(s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat'>" + String(s.power) + "%</span></div><div class='power'><span style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes influence the selected lamp. The other lamp stays off.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Updates every 10 seconds · Requested power is not a measured wattage.</p>";
+    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2 id='active-period'>" + String(s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill' id='power-state'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat' id='power-percent'>" + String(s.power) + "%</span></div><div class='power'><span id='power-bar' style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes influence the selected lamp. The other lamp stays off.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span data-start='0'>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span data-start='1'>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Requested power is not a measured wattage.</p>";
   } else if (view == "schedule") {
     h += "<section class='card'><h2>Day & night schedule</h2><p class='muted'>Set when each period begins and the temperatures to maintain. The schedule repeats daily in Europe/London time.</p>" + timeline(c) + "</section>" + formStart("/schedule");
     const char* periods[] = {"Day · Lamp 1", "Night · Lamp 2"};
@@ -156,11 +188,11 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     }
     h += "<p class='muted small'>Start times must differ. Day/lamp 1 runs until night/lamp 2 begins, then night runs until day begins again. Each period uses its own targets. Allowed targets: 5–40°C; heating pauses if either probe reaches 45°C.</p><button>Save schedule & temperatures</button></form>";
   } else if (view == "settings") {
-    h += "<section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Day and night targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
+    h += "<section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code data-probe='0'>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code data-probe='1'>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Day and night targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
   } else {
-    h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule and probe mappings. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
+    h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Dashboard access</h2>" + formStart("/admin") + "<input type='hidden' data-admin-current value='" + String(c.adminPassword[0] ? "1" : "0") + "'>" + adminFields(false, c) + "<button>Save password protection</button></form></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule and probe mappings. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
   }
-  h += "<p class='footer'>Independent hardware over-temperature protection is required.</p></main></div>" + ending(view == "monitor"); sendPage(h, code);
+  h += "<p class='footer'><span id='live-update' role='status'>Connecting to live updates…</span><br>Independent hardware over-temperature protection is required.</p></main></div>" + ending(); sendPage(h, code);
 }
 void startHotspot() {
   WiFi.mode(WIFI_AP_STA);
@@ -195,6 +227,36 @@ void networkTick() {
   }
   wasConnected = connected;
 }
+void apiConnection() {
+  if (!authorized()) return;
+  DeviceConfig config = configSnapshot();
+  bool connected = WiFi.status() == WL_CONNECTED;
+  sendJson("{\"connected\":" + String(jsonBool(connected)) + ",\"ssid\":" + jsonString(config.ssid) +
+           ",\"ip\":" + (connected ? jsonString(WiFi.localIP().toString()) : String("null")) +
+           ",\"hotspot\":" + jsonBool(hotspot) + ",\"hostname\":\"lizard-lamps.local\"}");
+}
+void apiStatus() {
+  if (!authorized()) return;
+  DeviceStatus status = statusSnapshot();
+  DeviceConfig config = configSnapshot();
+  sendJson("{\"temperatures\":[" + jsonNumber(status.temperatures[0]) + "," + jsonNumber(status.temperatures[1]) +
+           "],\"targets\":[" + jsonNumber(status.targets[0]) + "," + jsonNumber(status.targets[1]) +
+           "],\"activeLamp\":" + String(status.activeLamp) + ",\"power\":" + String(status.power) +
+           ",\"sensorsHealthy\":" + jsonBool(status.sensorsHealthy) + ",\"dimmerOnline\":" + jsonBool(status.dimmerOnline) +
+           ",\"clockValid\":" + jsonBool(status.clockValid) + ",\"clock\":" + jsonString(clockText()) +
+           ",\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) +
+           ",\"wifiConnected\":" + jsonBool(WiFi.status() == WL_CONNECTED) + "}");
+}
+void apiConfig() {
+  if (!authorized()) return;
+  DeviceConfig config = configSnapshot();
+  sendJson("{\"starts\":[" + jsonString(timeText(config.starts[0])) + "," + jsonString(timeText(config.starts[1])) +
+           "],\"targets\":[[" + jsonNumber(config.targets[0][0]) + "," + jsonNumber(config.targets[0][1]) +
+           "],[" + jsonNumber(config.targets[1][0]) + "," + jsonNumber(config.targets[1][1]) +
+           "]],\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) + ",\"adminProtected\":" + jsonBool(config.adminPassword[0]) + ",\"probes\":[" +
+           (config.probesSet ? jsonString(address(config.probes[0])) : String("null")) + "," +
+           (config.probesSet ? jsonString(address(config.probes[1])) : String("null")) + "]}");
+}
 void webTask(void*) {
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
@@ -204,33 +266,55 @@ void webTask(void*) {
   DeviceConfig c = configSnapshot();
   if (!c.ssid[0]) startHotspot();
   connectNetwork();
+  server.on("/api/status", HTTP_GET, apiStatus);
+  server.on("/api/connection", HTTP_GET, apiConnection);
+  server.on("/api/config", HTTP_GET, apiConfig);
   server.on("/", HTTP_GET, [] { if (authorized()) render(); });
   server.on("/connecting", HTTP_GET, [] {
     if (!authorized()) return;
     DeviceConfig config = configSnapshot();
     bool connected = WiFi.status() == WL_CONNECTED;
-    String html = beginning() + "<div class='setup-shell'><div class='welcome'>" + brand() + "<section class='card'><span class='eyebrow'>Wi-Fi setup</span><h1>" + String(connected ? "You're connected." : "Finding your network…") + "</h1>";
-    if (connected) {
-      html += "<p class='muted'>Your controller is connected to <strong>" + escape(config.ssid) + "</strong>. Rejoin that Wi-Fi network on your phone or computer, then open <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a> in your browser.</p><p class='muted small'>If that name does not work, use this device IP address:</p><p class='stat'><a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a></p><p class='muted'>Sign in with <strong>admin</strong> and your dashboard password. Save your day and night schedule and temperatures to finish setting up.</p><a class='button' href='http://" + WiFi.localIP().toString() + "/'>Open dashboard on home Wi-Fi →</a><p class='muted small gap'>Still on the setup hotspot? <a href='/?view=schedule'>Continue setup here</a>. On the hotspot the dashboard is always at http://192.168.4.1.</p>";
-    } else {
-      html += "<p class='muted'>Connecting to <strong>" + escape(config.ssid) + "</strong>. This page updates automatically.</p><p class='small muted'>If this takes longer than 30 seconds, check the network name, password and 2.4GHz support.</p><a class='button' href='/?view=device'>Check Wi-Fi details</a>";
-    }
-    html += "</section></div></div>" + ending(!connected); sendPage(html);
+    String html = beginning() + "<div class='setup-shell'><div class='welcome'>" + brand() + "<section class='card'><span class='eyebrow'>Wi-Fi setup</span><h1 id='connection-title'>" + String(connected ? "You're connected." : "Finding your network…") + "</h1><div id='live-message' class='notice' role='status' hidden></div><p class='muted'>Network: <strong id='connection-network'>" + escape(config.ssid) + "</strong></p>";
+    html += "<div id='connection-success'" + String(connected ? "" : " hidden") + "><p class='muted'>Rejoin your home Wi-Fi and open <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a>. If that name does not work, use:</p><p class='stat'><a data-device-link='address' href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a></p><p class='muted'>Sign in with <strong>admin</strong> if password protection is enabled. Save your day and night schedule and temperatures to finish setting up.</p><a class='button' data-device-link='button' href='http://" + WiFi.localIP().toString() + "/'>Open dashboard on home Wi-Fi →</a><p class='muted small gap'>Still on the setup hotspot? <a href='/?view=schedule'>Continue setup here</a>. On the hotspot the dashboard is at http://192.168.4.1.</p></div>";
+    html += "<div id='connection-waiting'" + String(connected ? " hidden" : "") + "><p class='muted'>Connecting… This page updates automatically.</p><p class='small muted'>If this takes longer than 30 seconds, check the network name, password and 2.4GHz support.</p><a class='button' href='/?view=device'>Check Wi-Fi details</a></div><p id='connection-error' role='status' class='small muted'></p>";
+    html += "</section></div></div>" + ending(); sendPage(html);
   });
-  server.on("/wifi", HTTP_POST, [] {
+  registerForm("/wifi", [] {
     if (!validPost()) return;
     DeviceConfig candidate = configSnapshot();
     String ssid = server.arg("ssid"), password = server.arg("wifiPassword"), admin = server.arg("adminPassword");
+    bool initial = !candidate.ssid[0];
+    bool protect = server.arg("protectAdmin") == "1";
     if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 63 || (password.length() && password.length() < 8) ||
-        (!candidate.adminPassword[0] && (admin.length() < 8 || admin.length() > 63))) {
-      render("Enter a network name (1–32 bytes), a Wi-Fi password of 8–63 characters (or empty for an open network), and a dashboard password of 8–63 characters.", 422, "device"); return;
+        (initial && protect && (admin.length() < 8 || admin.length() > 63))) {
+      render("Enter a network name (1–32 bytes), a Wi-Fi password of 8–63 characters (or empty for an open network), and a dashboard password of 8–63 characters if protection is enabled.", 422, "device"); return;
     }
     ssid.toCharArray(candidate.ssid, sizeof(candidate.ssid)); password.toCharArray(candidate.wifiPassword, sizeof(candidate.wifiPassword));
-    if (!candidate.adminPassword[0]) admin.toCharArray(candidate.adminPassword, sizeof(candidate.adminPassword));
+    if (initial) {
+      memset(candidate.adminPassword, 0, sizeof(candidate.adminPassword));
+      if (protect) admin.toCharArray(candidate.adminPassword, sizeof(candidate.adminPassword));
+    }
     if (!saveConfig(candidate)) { render("Could not save settings. Try again.", 500, "device"); return; }
     bootstrapClock(); reconnectRequested = true; redirect("/connecting");
   });
-  server.on("/schedule", HTTP_POST, [] {
+  registerForm("/admin", [] {
+    if (!validPost()) return;
+    DeviceConfig candidate = configSnapshot();
+    if (!candidate.ssid[0]) { render("Configure Wi-Fi first.", 422, "device"); return; }
+    bool enabled = server.arg("protectAdmin") == "1";
+    String password = server.arg("adminPassword");
+    bool reauthenticate = enabled && (!candidate.adminPassword[0] || !password.isEmpty());
+    if (enabled && ((!password.isEmpty() && (password.length() < 8 || password.length() > 63)) ||
+                    (password.isEmpty() && !candidate.adminPassword[0]))) {
+      render("Set a password of 8–63 characters to enable protection.", 422, "device"); return;
+    }
+    if (!enabled) memset(candidate.adminPassword, 0, sizeof(candidate.adminPassword));
+    else if (!password.isEmpty()) password.toCharArray(candidate.adminPassword, sizeof(candidate.adminPassword));
+    if (!saveConfig(candidate)) { render("Could not save password protection.", 500, "device"); return; }
+    if (apiRequest) { sendJson("{\"ok\":true,\"adminProtected\":" + String(jsonBool(enabled)) + ",\"reauthenticate\":" + jsonBool(reauthenticate) + "}"); return; }
+    redirect("/?view=device&saved=1");
+  });
+  registerForm("/schedule", [] {
     if (!validPost()) return;
     DeviceConfig candidate = configSnapshot();
     if (!candidate.ssid[0]) { render("Connect to Wi-Fi first.", 422, "schedule"); return; }
@@ -246,13 +330,13 @@ void webTask(void*) {
     if (!saveConfig(candidate)) { render("Could not save schedule and temperatures.", 500, "schedule"); return; }
     bootstrapClock(); redirect("/?view=monitor&saved=1");
   });
-  server.on("/clock", HTTP_POST, [] {
+  registerForm("/clock", [] {
     if (!validPost()) return;
     bootstrapClock();
     if (time(nullptr) < 1704067200) { render("Could not set the clock. Enable JavaScript and check your browser device time.", 422, "monitor"); return; }
     redirect("/?view=monitor&saved=1");
   });
-  server.on("/probes", HTTP_POST, [] {
+  registerForm("/probes", [] {
     if (!validPost()) return;
     DeviceConfig candidate = configSnapshot();
     if (!candidate.probesSet) { render("Two probes must be detected at initial setup. Connect them and restart.", 422, "settings"); return; }
@@ -260,11 +344,12 @@ void webTask(void*) {
     if (!saveConfig(candidate)) { render("Could not save probe labels.", 500, "settings"); return; }
     redirect("/?view=settings&saved=1");
   });
-  server.on("/reset", HTTP_POST, [] {
+  registerForm("/reset", [] {
     if (!validPost()) return;
     if (server.arg("confirmation") != "RESET") { render("Type RESET to confirm deletion.", 422, "device"); return; }
     xSemaphoreTake(stateMutex, portMAX_DELAY); resetRequested = true; maintenanceAcknowledged = false; xSemaphoreGive(stateMutex);
     rebootAt = millis() + 1000;
+    if (apiRequest) { sendJson("{\"ok\":true,\"resetting\":true}"); return; }
     sendPage(beginning() + "<div class='setup-shell'><div class='card'><h1>Starting fresh.</h1><p>Heating is stopping. All saved data will be erased and the device will restart. Join the open LizardLamps-XXXXXX hotspot (no password), then open http://192.168.4.1 in your browser.</p></div></div>" + ending());
   });
   server.onNotFound([] { server.sendHeader("Location", "http://" + String(hotspot ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "/"); server.send(302, "text/plain", "Open dashboard"); });

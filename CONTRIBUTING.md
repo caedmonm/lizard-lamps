@@ -2,7 +2,7 @@
 
 Issues and pull requests are welcome. Read the [README](README.md), [briefing](docs/PROJECT-BRIEF.md), [roadmap](docs/ROADMAP.md) and [safety notes](docs/SAFETY.md) first.
 
-Keep changes focused and lightweight enough for an ESP32. Preserve the existing Mycila hardware integration unless a change is justified and validated. Keep temperature-control calculations separate from hardware. The product hosts its dashboard directly on the ESP32 with ordinary web forms; no separate REST API is planned. Do not add external services without discussing the architecture.
+Keep changes focused and lightweight enough for an ESP32. Preserve the existing Mycila hardware integration unless a change is justified and validated. Keep temperature-control calculations separate from hardware. The product hosts its dashboard directly on the ESP32 with embedded AJAX and on-device JSON endpoints. Preserve authentication, CSRF checks and hardware-independent control when changing the API. Do not add external services without discussing the architecture.
 
 For bug reports, include the board and dimmer model, ESP32 core and library versions, configuration, expected/actual behavior, reproduction steps and relevant Serial Monitor output. Remove Wi-Fi passwords, tokens and other private details before posting.
 

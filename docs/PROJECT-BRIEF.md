@@ -1,6 +1,6 @@
 # ESP32 Dual Heat Lamp Controller
 
-> Historical briefing. The API/backend proposal below has been superseded by an on-device web service with hotspot provisioning. See the [current README](../README.md) for implemented behavior and setup. The remainder of this original briefing is retained for context.
+> Historical briefing. The current implementation is an on-device web service with hotspot provisioning and JSON endpoints for its AJAX dashboard; it has no external backend. See the [current README](../README.md) for implemented behavior and setup. The remainder of this original briefing is retained for context.
 
 ## Project overview
 

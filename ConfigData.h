@@ -7,6 +7,7 @@ struct DeviceConfig {
   uint32_t version = 2;
   char ssid[33] = {};
   char wifiPassword[64] = {};
+  // Empty means dashboard password protection is disabled.
   char adminPassword[64] = {};
   // [period: 0 day/lamp 1, 1 night/lamp 2][probe: 0 basking, 1 ambient]
   float targets[2][2] = {{19, 19}, {19, 19}};
@@ -48,7 +49,7 @@ inline bool validConfig(const DeviceConfig& config) {
   if (config.version != 2 || !memchr(config.ssid, 0, sizeof(config.ssid)) ||
       !memchr(config.wifiPassword, 0, sizeof(config.wifiPassword)) ||
       !memchr(config.adminPassword, 0, sizeof(config.adminPassword)) ||
-      (config.ssid[0] && strlen(config.adminPassword) < 8) ||
+      (config.adminPassword[0] && strlen(config.adminPassword) < 8) ||
       Control::scheduledLamp(0, config.starts[0], config.starts[1]) < 0) return false;
   for (int period = 0; period < 2; ++period)
     for (int probe = 0; probe < 2; ++probe)

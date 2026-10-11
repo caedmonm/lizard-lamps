@@ -32,7 +32,7 @@ Both probes can request heating from the same selected lamp. One warm probe does
 - Startup/reset pin behavior, TRIAC timing, thermal limits and network/flash interference require real hardware verification.
 - Saved addresses are initially assigned by discovery order; users must identify and, if necessary, swap the physical probe labels.
 - The clock keeps running after network loss, but cannot retain valid wall time across a power interruption. Browser fallback relies on the user's phone/computer clock; NTP is unauthenticated.
-- Settings/credentials are stored in NVS without project-configured flash encryption. The setup/recovery hotspot is open and the web service uses HTTP. Initial provisioning is accessible to nearby connected devices; after provisioning, dashboard authentication is still required.
+- Settings/credentials are stored in NVS without project-configured flash encryption. The setup/recovery hotspot is open and the web service uses HTTP. Initial provisioning is accessible to nearby connected devices; dashboard authentication is optional. When disabled, anyone on the connected network or recovery hotspot can change settings or reset the device.
 - There are no latched alarms, fault history, scheduled heating-off periods or installation-specific calibration settings.
 - In a reset storage failure, heating remains disabled until the reset is retried or the controller is restarted; saved data must not be assumed erased.
 

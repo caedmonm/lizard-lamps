@@ -57,14 +57,14 @@ struct WebServer {
  std::map<std::string,String> args;
  std::map<std::string,std::function<void()>> routes;
  std::map<std::string,String> headers;
- String body; int code=0; bool auth=true;
+ String body, contentType; int code=0; bool auth=true;
  WebServer(int){}
  String arg(const char* key){return args[key];}
  bool hasArg(const char* key){return args.count(key);}
  bool authenticate(const char*,const char*){return auth;}
  void requestAuthentication(int,const char*,const char*){code=401;body="Authenticate";}
  void sendHeader(const char* k,const String& v){headers[k]=v;}
- void send(int c,const char*,const String& b){code=c;body=b;}
+ void send(int c,const char* type,const String& b){code=c;body=b;contentType=type;}
  template<class F> void on(const char* k,int,F f){routes[k]=f;}
  template<class F> void onNotFound(F){}
  void begin(){throw std::runtime_error("routes ready");}

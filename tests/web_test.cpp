@@ -15,10 +15,15 @@ int main(int argc, char** argv){
  try{webTask(nullptr);}catch(const std::runtime_error&){}
  assert(WiFi.openAP);
  csrf="test-token"; hotspot=false;
+ server.routes["/api/status"]();assert(server.body.find("null")!=String::npos);assert(server.contentType.find("application/json")!=String::npos);
+ std::ofstream(outputDirectory+"/status-empty.json")<<server.body;
+
  render(); std::ofstream(outputDirectory + "/setup.html")<<server.body;
  assert(server.body.find("Choose a dashboard password")!=String::npos);
  server.args={{"csrf","wrong"}}; server.routes["/schedule"](); assert(server.code==403);
- server.args={{"csrf",csrf},{"ssid","Enclosure Wi-Fi"},{"wifiPassword","password123"},{"adminPassword","dashboard123"}};
+ server.args={{"csrf",csrf},{"ssid","Enclosure Wi-Fi"},{"protectAdmin","1"}};
+ server.routes["/api/wifi"]();assert(server.code==422&&!deviceConfig.ssid[0]);
+ server.args={{"csrf",csrf},{"ssid","Enclosure Wi-Fi"},{"wifiPassword","password123"},{"adminPassword","dashboard123"},{"protectAdmin","1"}};
  server.routes["/wifi"](); assert(server.code==303 && String(deviceConfig.ssid)=="Enclosure Wi-Fi");
  networkTick();assert(MDNS.started);
  server.routes["/connecting"]();assert(server.body.find("192.168.1.84")!=String::npos);
@@ -50,7 +55,37 @@ int main(int argc, char** argv){
  deviceStatus.activeLamp=1;deviceStatus.targets[0]=20;deviceStatus.targets[1]=18;server.args={{"view","monitor"}};render();assert(server.body.find("Night · Lamp 2")!=String::npos&&server.body.find("20.0°C")!=String::npos);
  server.args={{"csrf",csrf}};server.routes["/probes"]();assert(deviceConfig.probes[0][0]==11);
  strcpy(deviceConfig.ssid,"<script>alert(1)</script>");server.args={{"view","device"}};render();assert(server.body.find("&lt;script&gt;alert(1)&lt;/script&gt;")!=String::npos);
+ server.routes["/api/config"]();assert(server.body.find("wifiPassword")==String::npos&&server.body.find("adminPassword")==String::npos);
+ std::ofstream(outputDirectory+"/config.json")<<server.body;
+ server.routes["/api/connection"]();std::ofstream(outputDirectory+"/connection.json")<<server.body;
+ server.routes["/api/status"]();std::ofstream(outputDirectory+"/status.json")<<server.body;
+ assert(jsonString("a\"b\\c\n") == "\"a\\\"b\\\\c\\u000a\"");
+ server.auth=false;server.routes["/api/status"]();assert(server.code==401);server.auth=true;
+ server.args={{"csrf","wrong"}};server.routes["/api/schedule"]();assert(server.code==403&&server.body.find("error")!=String::npos);
+ scheduleArgs();server.args["nightAmbient"]="nan";server.routes["/api/schedule"]();assert(server.code==422&&server.body.find("error")!=String::npos);
+ scheduleArgs();server.routes["/api/schedule"]();assert(server.code==200&&server.body.find("\"ok\":true")!=String::npos);
+ server.args={{"view","monitor"}};render();assert(server.body.find("location.reload")==String::npos&&server.body.find("/api/status")!=String::npos);
+
+ // Existing protection stays enabled when saved without a replacement password.
+ server.args={{"csrf",csrf},{"protectAdmin","1"}};
+ server.routes["/api/admin"]();assert(server.code==200&&String(deviceConfig.adminPassword)=="dashboard123"&&server.body.find("\"reauthenticate\":false")!=String::npos);
+ server.auth=false;server.args={{"csrf",csrf}};server.routes["/api/admin"]();assert(server.code==401&&deviceConfig.adminPassword[0]);server.auth=true;
+ server.args={{"csrf","wrong"}};server.routes["/api/admin"]();assert(server.code==403&&deviceConfig.adminPassword[0]);
+ saveSucceeds=false;server.args={{"csrf",csrf}};server.routes["/api/admin"]();assert(server.code==500&&deviceConfig.adminPassword[0]);saveSucceeds=true;
+ server.routes["/api/admin"]();assert(server.code==200&&!deviceConfig.adminPassword[0]);
+ server.auth=false;server.routes["/"]();assert(server.code==200);server.routes["/api/status"]();assert(server.code==200);
+ server.routes["/api/config"]();assert(server.body.find("\"adminProtected\":false")!=String::npos);
+ server.args={{"csrf","wrong"},{"protectAdmin","1"},{"adminPassword","new-password"}};server.routes["/api/admin"]();assert(server.code==403&&!deviceConfig.adminPassword[0]);
+ server.args={{"csrf",csrf},{"protectAdmin","1"}};server.routes["/api/admin"]();assert(server.code==422&&!deviceConfig.adminPassword[0]);
+ server.args["adminPassword"]="short";server.routes["/api/admin"]();assert(server.code==422&&!deviceConfig.adminPassword[0]);
+ server.args["adminPassword"]="new-password";server.routes["/api/admin"]();assert(server.code==200&&String(deviceConfig.adminPassword)=="new-password"&&server.body.find("\"reauthenticate\":true")!=String::npos);
+ server.routes["/api/status"]();assert(server.code==401);server.auth=true;
+ server.args={{"csrf",csrf},{"ssid","Other Wi-Fi"},{"wifiPassword",""}};server.routes["/api/wifi"]();assert(server.code==200&&String(deviceConfig.adminPassword)=="new-password");
+ // First-time setup can explicitly omit protection.
+ deviceConfig=DeviceConfig{};server.auth=false;
+ server.args={{"csrf",csrf},{"ssid","Open dashboard"},{"wifiPassword",""}};
+ server.routes["/api/wifi"]();assert(server.code==200&&!deviceConfig.adminPassword[0]);server.routes["/"]();assert(server.code==200);
  server.args={{"csrf",csrf},{"confirmation","no"}};server.routes["/reset"]();assert(server.code==422&&!resetRequested);
- server.args={{"csrf",csrf},{"confirmation","RESET"}};server.routes["/reset"]();assert(server.code==200&&resetRequested);
- std::cout<<"Actual firmware pages rendered; authentication, CSRF, validation, saving, probe mapping, escaping and reset confirmation checks passed with mocked hardware.\n";
+ server.args={{"csrf",csrf},{"confirmation","RESET"}};server.routes["/api/reset"]();assert(server.code==200&&resetRequested);
+ std::cout<<"Optional password setup, protection toggles and actual firmware pages rendered; authentication, CSRF, validation, saving, probe mapping, escaping and reset confirmation checks passed with mocked hardware.\n";
 }

@@ -2,7 +2,7 @@
 
 A self-contained ESP32 controller for two AC heat lamps, originally built for a reptile enclosure. It hosts its own modern, responsive web dashboard: connect to its setup hotspot, enter Wi-Fi details, then manage your habitat from the device's IP address.
 
-**No separate REST API, cloud service, frontend build or external server is required.** The device serves HTML pages and accepts ordinary web form submissions. All CSS and JavaScript are embedded in firmware.
+**The web dashboard and its JSON API run directly on the ESP32.** No cloud service, frontend build or external server is required. All CSS and JavaScript are embedded in firmware.
 
 ## What it does
 
@@ -23,12 +23,12 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 1. Build and upload the firmware, with both DS18B20 probes connected.
 2. On your phone or computer, join the **LizardLamps-XXXXXX** Wi-Fi hotspot. **No hotspot password is needed.**
 3. Open a browser and visit **[http://192.168.4.1](http://192.168.4.1)**. The setup page may also open automatically. Stay connected if your phone warns that the hotspot has no internet.
-4. Enter the name and password of your **2.4GHz** Wi-Fi network and choose a dashboard password of 8–63 characters. Empty Wi-Fi passwords are supported for open networks.
-5. When prompted, sign in with username **admin** and your chosen dashboard password.
+4. Enter the name and password of your **2.4GHz** Wi-Fi network and choose whether to require a dashboard password. Protection is enabled by default; use 8–63 characters, or uncheck **Require a password to manage this device**. Empty Wi-Fi passwords are supported for open networks.
+5. If protection is enabled, sign in with username **admin** and your chosen dashboard password.
 6. Open **Schedule & temps** and save both periods together: **Day · Lamp 1** and **Night · Lamp 2** each have a start time, basking spot target and ambient target. Initial values are 19°C for all four targets, day at 07:00 and night at 19:00; save the combined form before heating can run.
 7. Rejoin your normal Wi-Fi and visit **[http://lizard-lamps.local](http://lizard-lamps.local)**. If your network does not resolve that name, use the LAN IP shown on the connection success page, dashboard banner or Device page. Serial Monitor at 115200 baud also prints both addresses. The setup hotspot closes two minutes after a successful connection.
 
-Once the combined schedule and targets are saved, the default page is the live overview, refreshed every 10 seconds. Other pages do not refresh while you edit forms. The interface works without downloading fonts, scripts or styles from the internet.
+Once the combined schedule and targets are saved, the default page is the live overview. It polls the status API approximately every 2 seconds and updates readings, targets, selected lamp, power and faults in place. Wi-Fi connection progress also updates through AJAX. Settings forms save through AJAX with inline confirmation/errors; editing does not reload the page. The interface works without downloading fonts, scripts or styles from the internet.
 
 Identify your physical probes by their readings and displayed OneWire addresses. Use **Probes → Swap probe labels** if the basking and ambient labels are reversed. Probe addresses are discovered once when exactly two probes are attached, then saved; a missing probe is never silently replaced. To bind replacement probes, factory reset, attach both new probes and restart.
 
@@ -39,7 +39,7 @@ Identify your physical probes by their readings and displayed OneWire addresses.
 | LizardLamps-XXXXXX setup/recovery hotspot | [http://192.168.4.1](http://192.168.4.1) |
 | Your normal home Wi-Fi | [http://lizard-lamps.local](http://lizard-lamps.local), or the device LAN IP shown after setup |
 
-192.168.4.1 is the hotspot address; the controller gets a separate address from your home router. After setup, sign in with username **admin** and your chosen dashboard password.
+192.168.4.1 is the hotspot address; the controller gets a separate address from your home router. If protection is enabled, sign in with username **admin** and your chosen dashboard password.
 
 ## Schedule and temperature control
 
@@ -69,11 +69,11 @@ Saved settings from the original two-target firmware are migrated automatically.
 
 ## Wi-Fi recovery and reset
 
-The device reconnects automatically. If disconnected for 30 seconds, it opens the same open recovery hotspot. Saved control settings remain active when the clock and hardware are healthy. Visit 192.168.4.1 and sign in to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
+The device reconnects automatically. If disconnected for 30 seconds, it opens the same open recovery hotspot. Saved control settings remain active when the clock and hardware are healthy. Visit 192.168.4.1 and sign in if protection is enabled to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
 
 **Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule and probe mapping, clears the ESP32 station credentials, and restarts. Join the open LizardLamps-XXXXXX hotspot and visit http://192.168.4.1 to start again.
 
-The setup hotspot is open and initial provisioning is accessible to nearby connected devices. After provisioning, the dashboard uses HTTP Digest authentication and a per-boot form token. Wi-Fi and dashboard credentials are stored in device NVS; flash encryption is not configured by this project. It is intended for a trusted local network; do not expose its HTTP service directly to the internet.
+The setup hotspot is open and initial provisioning is accessible to nearby connected devices. When protection is enabled, the dashboard uses HTTP Digest authentication. A per-boot form token protects writes in either mode. Wi-Fi and dashboard credentials are stored in device NVS; flash encryption is not configured by this project. It is intended for a trusted local network; do not expose its HTTP service directly to the internet.
 
 ## Hardware
 
@@ -117,11 +117,33 @@ arduino-cli upload --fqbn esp32:esp32:esp32 --port <your-serial-port> .
 arduino-cli monitor --port <your-serial-port> --config baudrate=115200
 ```
 
-Run native tests with a C++17 compiler:
+Run tests with a C++17 compiler and Python 3 (Node.js enables the embedded AJAX client tests):
 
 ```sh
 ./tests/run.sh
 ```
+
+**Device → Dashboard access** lets you enable or disable password protection later. Existing saved passwords stay enabled after an upgrade. Leave the password blank to keep an existing password; enabling from an unprotected state requires a new password. Disabling clears the saved dashboard password and allows anyone on the connected network or recovery hotspot to manage the device.
+
+## On-device API
+
+The browser uses these same-origin endpoints with dashboard Digest authentication when password protection is enabled. Responses are JSON and are not cached. Wi-Fi and dashboard passwords are never returned by the read endpoints.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/status` | Temperatures, active targets, selected lamp, requested power, clock and health |
+| GET | `/api/connection` | Wi-Fi progress, network name, LAN IP and hotspot state |
+| GET | `/api/config` | Day/night start times, targets, probe identities and protection state |
+| POST | `/api/schedule` | Save both periods and all four targets together |
+| POST | `/api/wifi` | Save Wi-Fi details and initial dashboard protection choice |
+| POST | `/api/admin` | Enable, disable or change dashboard password protection |
+| POST | `/api/clock` | Supply browser-time fallback |
+| POST | `/api/probes` | Swap basking/ambient probe identities |
+| POST | `/api/reset` | Confirm factory reset |
+
+Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
+
+Missing/disconnected readings are JSON `null`. The client shows a connection-loss notice when polling fails, avoids overlapping polls, backs off on failures and pauses network requests while the tab is hidden. After Wi-Fi setup, navigation to the connection page is intentional; there are no automatic full-page refreshes.
 
 ## Structure and documentation
 
@@ -129,10 +151,11 @@ Run native tests with a C++17 compiler:
 - `ControlLogic.h`: hardware-independent schedule, temperature control and validation.
 - `ConfigData.h`: per-period configuration, validation and migration of earlier saved settings.
 - `DeviceState.h/.cpp`: synchronized configuration/status and persistent storage.
-- `DeviceWeb.cpp`: setup, networking, clock, server-rendered pages and web forms.
+- `DeviceWeb.cpp`: setup, networking, clock, server-rendered pages and JSON API endpoints.
+- `WebClient.h`: AJAX polling, live DOM updates, inline settings saves and connection feedback.
 - `WebStyle.h`: embedded responsive design.
 - [Safety and limitations](docs/SAFETY.md), [validation](docs/VALIDATION.md), [roadmap](docs/ROADMAP.md), [contributing](CONTRIBUTING.md).
-- [Original briefing](docs/PROJECT-BRIEF.md) and [original sketch](docs/original/lizard-lamps.ino) are historical references. The original API/backend plan has been superseded.
+- [Original briefing](docs/PROJECT-BRIEF.md) and [original sketch](docs/original/lizard-lamps.ino) are historical references. The current API supports the local dashboard; there is no external backend.
 
 ## License
 

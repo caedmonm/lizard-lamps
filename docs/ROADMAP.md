@@ -1,6 +1,6 @@
 # Roadmap
 
-The controller now hosts its own interface on the ESP32. The earlier proposal for a REST API has been dropped. No cloud or separate backend is planned.
+The controller now hosts its own interface on the ESP32. Its JSON API serves the embedded AJAX dashboard. No cloud or separate backend is planned.
 
 ## Implemented prototype
 
@@ -10,7 +10,8 @@ The controller now hosts its own interface on the ESP32. The earlier proposal fo
 - Responsive on-device overview, combined day/night schedule and temperature editor, probe settings and device/reset pages.
 - Independent day/night basking/ambient targets and greatest-deficit proportional heating.
 - Local daily schedule, midnight wrap, London daylight saving and clock fallback.
-- Wi-Fi recovery hotspot and authenticated, CSRF-protected web forms.
+- Wi-Fi recovery hotspot and authenticated, CSRF-protected JSON write endpoints with HTML form fallbacks.
+- AJAX live monitoring, Wi-Fi connection progress and inline settings saves without page refreshes.
 - Stale/invalid/over-limit temperature shutdown and zero-cross fault shutdown.
 - Separate web task and hardware control loop, with output-off acknowledgment before configuration writes or reset.
 - Automatic migration of existing saved temperatures into both day and night periods.

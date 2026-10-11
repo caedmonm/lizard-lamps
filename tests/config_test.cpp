@@ -27,6 +27,10 @@ int main() {
   Preferences::writesSucceed=true;assert(loadConfig());assert(Preferences::bytes["config"].size()==sizeof(DeviceConfig));
   DeviceConfig invalid=deviceConfig;invalid.targets[1][1]=NAN;store(invalid);assert(!loadConfig());
   invalid=deviceConfig;invalid.targets[0][0]=41;assert(!saveConfig(invalid));
+
+  DeviceConfig open=deviceConfig;memset(open.adminPassword,0,sizeof(open.adminPassword));assert(saveConfig(open));
+  deviceConfig=DeviceConfig{};assert(loadConfig());assert(deviceConfig.ssid[0]&&!deviceConfig.adminPassword[0]);
+  invalid=deviceConfig;strcpy(invalid.adminPassword,"short");assert(!saveConfig(invalid));
   old.targets[0]=NAN;store(old);assert(!loadConfig());
   old.targets[0]=31;old.version=99;store(old);assert(!loadConfig());
   std::cout<<"Legacy migration, preserved credentials/probes, persistence, incomplete setup and invalid targets passed with mocked storage.\n";
