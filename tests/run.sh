@@ -7,3 +7,5 @@ trap 'rm -rf "$test_build_dir"' EXIT
 "$test_build_dir/control"
 "${CXX:-c++}" -std=c++17 -Itests/stubs tests/web_test.cpp -o "$test_build_dir/web"
 "$test_build_dir/web" "$test_build_dir"
+"${CXX:-c++}" -std=c++17 -Itests/stubs tests/config_test.cpp -o "$test_build_dir/config"
+"$test_build_dir/config"

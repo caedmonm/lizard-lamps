@@ -124,8 +124,8 @@ void loop() {
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   bool stopped = maintenance || resetRequested;
   xSemaphoreGive(stateMutex);
-  bool enabled = config.targetsSet && config.scheduleSet && clockValid && healthy && online && !stopped;
-  int power = enabled ? Control::power(temperatures[0], temperatures[1], config.targets[0], config.targets[1]) : 0;
+  bool enabled = config.targetsSet && config.scheduleSet && selected >= 0 && clockValid && healthy && online && !stopped;
+  int power = enabled ? Control::periodPower(selected, temperatures[0], temperatures[1], config.targets) : 0;
   power = applyPower(selected, power);
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   deviceStatus.temperatures[0] = temperatures[0];
@@ -135,6 +135,8 @@ void loop() {
   deviceStatus.clockValid = clockValid;
   deviceStatus.activeLamp = selected;
   deviceStatus.power = power;
+  for (int probe = 0; probe < 2; ++probe)
+    deviceStatus.targets[probe] = selected >= 0 ? config.targets[selected][probe] : NAN;
   if (stopped && power == 0) maintenanceAcknowledged = true;
   deviceStatus.lastReading = lastReading;
   xSemaphoreGive(stateMutex);

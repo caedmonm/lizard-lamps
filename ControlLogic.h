@@ -25,6 +25,10 @@ inline int power(float basking, float ambient, float targetBasking, float target
   float deficit = std::fmax(targetBasking - basking, targetAmbient - ambient);
   return std::lround(std::fmax(0.0f, std::fmin(1.0f, deficit / FadeRange)) * 100);
 }
+inline int periodPower(int selected, float basking, float ambient, const float targets[2][2]) {
+  if (selected < 0 || selected > 1) return 0;
+  return power(basking, ambient, targets[selected][0], targets[selected][1]);
+}
 inline bool parseTime(const char* text, int& minute) {
   if (std::strlen(text) != 5 || text[2] != ':' || text[0] < '0' || text[0] > '2' ||
       text[1] < '0' || text[1] > '9' || text[3] < '0' || text[3] > '5' ||

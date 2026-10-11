@@ -108,7 +108,7 @@ String timeline(const DeviceConfig& c) {
   };
   if (c.starts[0] < c.starts[1]) segment(c.starts[0], c.starts[1]);
   else { segment(0, c.starts[1]); segment(c.starts[0], 1440); }
-  return h + "</div><div class='ticks'><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div class='legend'><span><i class='swatch'></i>Lamp 1</span><span><i class='swatch purple'></i>Lamp 2</span></div>";
+  return h + "</div><div class='ticks'><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div><div class='legend'><span><i class='swatch'></i>Day · Lamp 1</span><span><i class='swatch purple'></i>Night · Lamp 2</span></div>";
 }
 void render(const String& error = "", int code = 200, const String& forcedView = "") {
   DeviceConfig c = configSnapshot(); DeviceStatus s = statusSnapshot();
@@ -119,10 +119,10 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     h += wifiForm(true, c) + "</div><p class='footer'>Join LizardLamps-XXXXXX without a password, then open <a href='http://192.168.4.1'>http://192.168.4.1</a>. Heating stays off during setup.</p></div></div>" + ending(); sendPage(h, code); return;
   }
   String view = forcedView.isEmpty() ? server.arg("view") : forcedView;
-  if (view != "settings" && view != "schedule" && view != "device") view = c.targetsSet && c.scheduleSet ? "monitor" : "settings";
+  if (view != "settings" && view != "schedule" && view != "device") view = c.targetsSet && c.scheduleSet ? "monitor" : "schedule";
   h += "<div class='shell'><aside>" + brand() + "<div><div class='tag'>Your habitat</div><nav class='nav' aria-label='Main navigation'>";
   const char* views[] = {"monitor", "schedule", "settings", "device"};
-  const char* labels[] = {"Overview", "Schedule", "Targets", "Device"};
+  const char* labels[] = {"Overview", "Schedule & temps", "Probes", "Device"};
   for (int i = 0; i < 4; ++i) h += "<a class='" + String(view == views[i] ? "active" : "") + "' href='/?view=" + views[i] + "'>" + labels[i] + "</a>";
   h += "</nav></div><div class='sidefoot'><span class='dot'></span>On-device control<br>Europe/London · 50Hz</div></aside><main>";
   if (error.length()) h += "<div class='notice error' role='alert'>" + escape(error) + "</div>";
@@ -131,8 +131,8 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     if (WiFi.status() == WL_CONNECTED) h += "<div class='notice success'>Connected to Wi-Fi. Rejoin your usual network and open <a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a>. You can also use <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a> on your home Wi-Fi. This setup hotspot closes after two minutes.</div>";
     else h += "<div class='notice'>Setup hotspot is active. Waiting to connect to <strong>" + escape(c.ssid) + "</strong>. Check your Wi-Fi details on the <a href='/?view=device'>Device page</a> if connection fails.</div>";
   }
-  if (!c.targetsSet || !c.scheduleSet) h += "<div class='notice'>Finish setup: save your <a href='/?view=settings'>temperature targets</a> and <a href='/?view=schedule'>daily schedule</a>. Heating stays off until both are saved and the clock is ready.</div>";
-  const char* title = view == "monitor" ? "Your habitat, at a glance." : view == "schedule" ? "A rhythm for every day." : view == "settings" ? "Find your comfort zone." : "Make it yours.";
+  if (!c.targetsSet || !c.scheduleSet) h += "<div class='notice'>Finish setup: save your <a href='/?view=schedule'>day and night schedule with temperature targets</a>. Heating stays off until the schedule is saved and the clock is ready.</div>";
+  const char* title = view == "monitor" ? "Your habitat, at a glance." : view == "schedule" ? "A rhythm for every day." : view == "settings" ? "Know your probes." : "Make it yours.";
   h += "<header class='head'><div><span class='eyebrow'>" + String(view == "monitor" ? "Live conditions" : "Controller settings") + "</span><h1>" + title + "</h1><span class='muted'>" + clockText() + "</span></div><span class='pill'>" + String(WiFi.status() == WL_CONNECTED ? "● Wi-Fi connected" : "○ Wi-Fi offline") + "</span></header>";
   if (view == "monitor") {
     if (!s.sensorsHealthy || !s.dimmerOnline || !s.clockValid) h += "<div class='notice error' role='alert'>Heating paused — " + String(!s.sensorsHealthy ? "check both temperature probes and temperature limits." : !s.dimmerOnline ? "zero-cross detection is unavailable." : "waiting for a valid clock. Use your browser time below, or wait for network time.") + "</div>";
@@ -140,13 +140,23 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     h += "<div class='grid'>";
     const char* names[] = {"Basking spot", "Ambient"};
     for (int i = 0; i < 2; ++i) {
-      h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "<span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong>" + String(c.targets[i], 1) + "°C</strong></div></section>";
+      h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "<span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong>" + String(isfinite(s.targets[i]) ? String(s.targets[i], 1) + "°C" : "—") + "</strong></div></section>";
     }
-    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2>" + String(s.activeLamp >= 0 ? "Lamp " + String(s.activeLamp + 1) + " selected" : "Waiting for schedule") + "</h2></div><span class='pill'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat'>" + String(s.power) + "%</span></div><div class='power'><span style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes influence the selected lamp. The other lamp stays off.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span>Lamp 1 · " + timeText(c.starts[0]) + "</span><span>Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Updates every 10 seconds · Requested power is not a measured wattage.</p>";
+    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2>" + String(s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat'>" + String(s.power) + "%</span></div><div class='power'><span style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes influence the selected lamp. The other lamp stays off.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Updates every 10 seconds · Requested power is not a measured wattage.</p>";
   } else if (view == "schedule") {
-    h += "<section class='card'><h2>Daily lamp schedule</h2><p class='muted'>Choose when each lamp takes over. This schedule repeats every day, in Europe/London time.</p>" + timeline(c) + "<div class='divider'>" + formStart("/schedule") + "<div class='fields'><div><label for='lamp1'>Lamp 1 starts at</label><input type='time' id='lamp1' name='lamp1' required value='" + timeText(c.starts[0]) + "'></div><div><label for='lamp2'>Lamp 2 starts at</label><input type='time' id='lamp2' name='lamp2' required value='" + timeText(c.starts[1]) + "'></div></div><p class='muted small gap'>Start times must differ. Lamp 1 runs until lamp 2 starts; lamp 2 runs until lamp 1 starts, including across midnight. Temperature targets stay the same for both lamps.</p><button>Save schedule</button></form></div></section>";
+    h += "<section class='card'><h2>Day & night schedule</h2><p class='muted'>Set when each period begins and the temperatures to maintain. The schedule repeats daily in Europe/London time.</p>" + timeline(c) + "</section>" + formStart("/schedule");
+    const char* periods[] = {"Day · Lamp 1", "Night · Lamp 2"};
+    const char* timeFields[] = {"lamp1", "lamp2"};
+    const char* baskingFields[] = {"dayBasking", "nightBasking"};
+    const char* ambientFields[] = {"dayAmbient", "nightAmbient"};
+    for (int period = 0; period < 2; ++period) {
+      h += "<section class='card'><h2>" + String(periods[period]) + "</h2><label for='" + timeFields[period] + "'>Starts at</label><input type='time' id='" + timeFields[period] + "' name='" + timeFields[period] + "' required value='" + timeText(c.starts[period]) + "'><div class='fields gap'>";
+      h += "<div><label for='" + String(baskingFields[period]) + "'>Basking spot · °C</label><input type='number' id='" + baskingFields[period] + "' name='" + baskingFields[period] + "' step='0.1' min='5' max='40' required value='" + String(c.targets[period][0], 1) + "'></div>";
+      h += "<div><label for='" + String(ambientFields[period]) + "'>Ambient · °C</label><input type='number' id='" + ambientFields[period] + "' name='" + ambientFields[period] + "' step='0.1' min='5' max='40' required value='" + String(c.targets[period][1], 1) + "'></div></div></section>";
+    }
+    h += "<p class='muted small'>Start times must differ. Day/lamp 1 runs until night/lamp 2 begins, then night runs until day begins again. Each period uses its own targets. Allowed targets: 5–40°C; heating pauses if either probe reaches 45°C.</p><button>Save schedule & temperatures</button></form>";
   } else if (view == "settings") {
-    h += "<section class='card'><h2>Temperature targets</h2><p class='muted'>Set the temperature you want at each probe. The greater temperature deficit controls the selected lamp.</p>" + formStart("/targets") + "<div class='fields'><div><label for='basking'>Basking spot · °C</label><input type='number' id='basking' name='basking' step='0.1' min='5' max='40' required value='" + String(c.targets[0], 1) + "'></div><div><label for='ambient'>Ambient · °C</label><input type='number' id='ambient' name='ambient' step='0.1' min='5' max='40' required value='" + String(c.targets[1], 1) + "'></div></div><p class='muted small gap'>Allowed range: 5–40°C. Power ramps over 3°C below target. Heating pauses if either probe reaches 45°C.</p><button>Save targets</button></form></section><section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
+    h += "<section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Day and night targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
   } else {
     h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule and probe mappings. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
   }
@@ -201,7 +211,7 @@ void webTask(void*) {
     bool connected = WiFi.status() == WL_CONNECTED;
     String html = beginning() + "<div class='setup-shell'><div class='welcome'>" + brand() + "<section class='card'><span class='eyebrow'>Wi-Fi setup</span><h1>" + String(connected ? "You're connected." : "Finding your network…") + "</h1>";
     if (connected) {
-      html += "<p class='muted'>Your controller is connected to <strong>" + escape(config.ssid) + "</strong>. Rejoin that Wi-Fi network on your phone or computer, then open <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a> in your browser.</p><p class='muted small'>If that name does not work, use this device IP address:</p><p class='stat'><a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a></p><p class='muted'>Sign in with <strong>admin</strong> and your dashboard password. Save your temperature targets and schedule to finish setting up.</p><a class='button' href='http://" + WiFi.localIP().toString() + "/'>Open dashboard on home Wi-Fi →</a><p class='muted small gap'>Still on the setup hotspot? <a href='/?view=settings'>Continue setup here</a>. On the hotspot the dashboard is always at http://192.168.4.1.</p>";
+      html += "<p class='muted'>Your controller is connected to <strong>" + escape(config.ssid) + "</strong>. Rejoin that Wi-Fi network on your phone or computer, then open <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a> in your browser.</p><p class='muted small'>If that name does not work, use this device IP address:</p><p class='stat'><a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a></p><p class='muted'>Sign in with <strong>admin</strong> and your dashboard password. Save your day and night schedule and temperatures to finish setting up.</p><a class='button' href='http://" + WiFi.localIP().toString() + "/'>Open dashboard on home Wi-Fi →</a><p class='muted small gap'>Still on the setup hotspot? <a href='/?view=schedule'>Continue setup here</a>. On the hotspot the dashboard is always at http://192.168.4.1.</p>";
     } else {
       html += "<p class='muted'>Connecting to <strong>" + escape(config.ssid) + "</strong>. This page updates automatically.</p><p class='small muted'>If this takes longer than 30 seconds, check the network name, password and 2.4GHz support.</p><a class='button' href='/?view=device'>Check Wi-Fi details</a>";
     }
@@ -220,25 +230,21 @@ void webTask(void*) {
     if (!saveConfig(candidate)) { render("Could not save settings. Try again.", 500, "device"); return; }
     bootstrapClock(); reconnectRequested = true; redirect("/connecting");
   });
-  server.on("/targets", HTTP_POST, [] {
-    if (!validPost()) return;
-    DeviceConfig candidate = configSnapshot();
-    if (!candidate.ssid[0]) { render("Connect to Wi-Fi first.", 422, "settings"); return; }
-    if (!Control::parseTarget(server.arg("basking").c_str(), candidate.targets[0]) ||
-        !Control::parseTarget(server.arg("ambient").c_str(), candidate.targets[1])) { render("Both targets must be finite numbers between 5°C and 40°C.", 422, "settings"); return; }
-    candidate.targetsSet = true;
-    if (!saveConfig(candidate)) { render("Could not save targets.", 500, "settings"); return; }
-    bootstrapClock(); redirect(candidate.scheduleSet ? "/?view=monitor&saved=1" : "/?view=schedule&saved=1");
-  });
   server.on("/schedule", HTTP_POST, [] {
     if (!validPost()) return;
     DeviceConfig candidate = configSnapshot();
     if (!candidate.ssid[0]) { render("Connect to Wi-Fi first.", 422, "schedule"); return; }
     if (!Control::parseTime(server.arg("lamp1").c_str(), candidate.starts[0]) ||
         !Control::parseTime(server.arg("lamp2").c_str(), candidate.starts[1]) || candidate.starts[0] == candidate.starts[1]) { render("Choose two different valid start times.", 422, "schedule"); return; }
-    candidate.scheduleSet = true;
-    if (!saveConfig(candidate)) { render("Could not save schedule.", 500, "schedule"); return; }
-    bootstrapClock(); redirect(candidate.targetsSet ? "/?view=monitor&saved=1" : "/?view=settings&saved=1");
+    const char* fields[2][2] = {{"dayBasking", "dayAmbient"}, {"nightBasking", "nightAmbient"}};
+    for (int period = 0; period < 2; ++period)
+      for (int probe = 0; probe < 2; ++probe)
+        if (!Control::parseTarget(server.arg(fields[period][probe]).c_str(), candidate.targets[period][probe])) {
+          render("All four day/night targets must be finite numbers between 5°C and 40°C.", 422, "schedule"); return;
+        }
+    candidate.scheduleSet = candidate.targetsSet = true;
+    if (!saveConfig(candidate)) { render("Could not save schedule and temperatures.", 500, "schedule"); return; }
+    bootstrapClock(); redirect("/?view=monitor&saved=1");
   });
   server.on("/clock", HTTP_POST, [] {
     if (!validPost()) return;

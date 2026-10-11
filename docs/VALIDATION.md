@@ -6,8 +6,10 @@ The firmware compiles with `esp32:esp32:esp32`, Espressif core 3.3.12, OneWire 2
 
 Run `./tests/run.sh` with a C++17 compiler:
 
-- Pure control tests cover exact switch boundaries, midnight wrap, distinct start times, all minutes across representative schedules, proportional demand, invalid/non-finite/over-limit readings and strict form value validation.
-- Web tests compile the actual `DeviceWeb.cpp` against mocked ESP32 peripherals. They exercise provisioning, authentication checks, CSRF rejection, invalid targets/schedules, persistence failure handling, saved state, probe swapping, escaped network names and reset confirmation. They render all six page types to HTML.
+- Pure control tests cover exact switch boundaries, midnight wrap, distinct start times, all minutes across representative schedules, active day/night targets at switching boundaries, proportional demand, invalid/non-finite/over-limit readings and strict form value validation.
+- Web tests compile the actual `DeviceWeb.cpp` against mocked ESP32 peripherals. They exercise provisioning, authentication checks, CSRF rejection, invalid or missing day/night targets, invalid schedules, persistence failure handling, saved state, probe swapping, escaped network names and reset confirmation. They render all six page types to HTML.
+
+Configuration tests exercise the actual storage code against mocked NVS: legacy layout migration, credentials/probe preservation, day/night persistence, partial setup, invalid configuration and a failed migration write.
 
 The mock tests do not simulate Wi-Fi, flash writes, hardware timing, browser Digest authentication negotiation or execution of the separate FreeRTOS tasks. Rendered HTML is not proof of captive-portal or browser compatibility.
 
@@ -28,9 +30,9 @@ Record board/dimmer/lamp models, wiring arrangement, probe addresses, core/libra
 - First boot: both outputs off, unique open hotspot requiring no password, setup works on desktop and mobile. Verify fallback at 192.168.4.1 if a captive browser does not open.
 - Correct/incorrect/open-network Wi-Fi credentials; connection status, lizard-lamps.local discovery and assigned IP fallback; hotspot closes after successful connection.
 - Dashboard sign-in, navigation and mobile layout; overview updates, editing pages do not discard changes.
-- Targets/schedule survive reboot; overview is the default after configuration.
+- Distinct day/night targets and schedule survive reboot; upgrades preserve credentials/probes/times and copy the previous targets into both periods; overview is the default after configuration.
 - Correct probe identity and label swapping; disconnect either probe and confirm output off; reconnect and verify recovery.
-- Exact start-time switching, midnight wrap and 20ms transition gap in both directions; confirm no overlap at the physical outputs.
+- Exact start-time switching of both lamp and targets, midnight wrap and 20ms transition gap in both directions; confirm no overlap at the physical outputs.
 - NTP and browser clock fallback; cold boot without a clock keeps outputs off; network loss after valid time preserves local scheduling.
 - London spring/autumn transitions follow documented wall-clock behavior.
 - Zero-cross loss, over-temperature readings, partial initialization and reset/startup output behavior.

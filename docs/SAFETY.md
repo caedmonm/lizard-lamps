@@ -11,7 +11,7 @@ Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current r
 ## Firmware safeguards
 
 - Output pins are driven low during startup; initialized dimmers receive zero-duty commands.
-- Both targets, schedule and a valid clock are required before heating.
+- All four day/night targets, the combined schedule and a valid clock are required before heating.
 - Probes use saved addresses, with no automatic replacement of missing probes.
 - Disconnected, non-finite, below -20°C, or at/above 45°C readings disable heating.
 - A last-reading timeout of 3 seconds disables heating when the loop can evaluate it.

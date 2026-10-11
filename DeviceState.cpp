@@ -25,25 +25,29 @@ bool loadConfig() {
   Preferences prefs;
   if (!prefs.begin("lizard", true)) return false;
   DeviceConfig candidate;
-  bool found = prefs.getBytesLength("config") == sizeof(candidate) &&
-               prefs.getBytes("config", &candidate, sizeof(candidate)) == sizeof(candidate);
+  size_t length = prefs.getBytesLength("config");
+  bool migrated = false, found = false;
+  if (length == sizeof(candidate)) {
+    found = prefs.getBytes("config", &candidate, sizeof(candidate)) == sizeof(candidate);
+  } else if (length == sizeof(LegacyDeviceConfigV1)) {
+    LegacyDeviceConfigV1 old;
+    found = prefs.getBytes("config", &old, sizeof(old)) == sizeof(old);
+    candidate = migrateLegacyConfig(old);
+    migrated = true;
+  }
   prefs.end();
-  if (!found || candidate.version != 1 ||
-      !memchr(candidate.ssid, 0, sizeof(candidate.ssid)) ||
-      !memchr(candidate.wifiPassword, 0, sizeof(candidate.wifiPassword)) ||
-      !memchr(candidate.adminPassword, 0, sizeof(candidate.adminPassword)) ||
-      !Control::validTarget(candidate.targets[0]) || !Control::validTarget(candidate.targets[1]) ||
-      Control::scheduledLamp(0, candidate.starts[0], candidate.starts[1]) < 0 ||
-      (candidate.ssid[0] && strlen(candidate.adminPassword) < 8)) return false;
+  if (!found || !validConfig(candidate)) return false;
   if (candidate.probesSet) {
     if (memcmp(candidate.probes[0], candidate.probes[1], 8) == 0) return false;
     for (int i = 0; i < 2; ++i)
       if (candidate.probes[i][0] != 0x28 || OneWire::crc8(candidate.probes[i], 7) != candidate.probes[i][7]) return false;
   }
   deviceConfig = candidate;
+  if (migrated && !saveConfig(candidate)) Serial.println("Configuration upgrade could not be saved; it will retry on reboot");
   return true;
 }
 bool saveConfig(const DeviceConfig& candidate) {
+  if (!validConfig(candidate)) return false;
   // Hold the outputs off while flash is written; only the control loop owns dimmer hardware.
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   maintenance = true;

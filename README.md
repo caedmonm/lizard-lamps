@@ -9,7 +9,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 - Open Wi-Fi setup hotspot (no password) with a captive-portal DNS redirect.
 - Local dashboard showing **basking spot** and **ambient** temperatures, targets, selected lamp, requested power, connectivity and faults.
 - Two daily start times for switching between lamp 1 and lamp 2, including periods spanning midnight.
-- Independent basking and ambient targets, with proportional heating on the selected lamp.
+- Independent day and night basking/ambient targets, with proportional heating on the selected lamp.
 - Persistent Wi-Fi details, dashboard password, targets, schedule and fixed probe addresses.
 - Probe label swapping, Wi-Fi recovery after disconnection and a confirmed factory reset.
 - Europe/London clock with daylight saving, NTP synchronization and browser-time fallback.
@@ -25,12 +25,12 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 3. Open a browser and visit **[http://192.168.4.1](http://192.168.4.1)**. The setup page may also open automatically. Stay connected if your phone warns that the hotspot has no internet.
 4. Enter the name and password of your **2.4GHz** Wi-Fi network and choose a dashboard password of 8–63 characters. Empty Wi-Fi passwords are supported for open networks.
 5. When prompted, sign in with username **admin** and your chosen dashboard password.
-6. Save the **basking spot** and **ambient** targets, then save the daily lamp schedule. Initial values are 19°C for each target, lamp 1 at 07:00 and lamp 2 at 19:00; they must be explicitly saved before heating can run.
+6. Open **Schedule & temps** and save both periods together: **Day · Lamp 1** and **Night · Lamp 2** each have a start time, basking spot target and ambient target. Initial values are 19°C for all four targets, day at 07:00 and night at 19:00; save the combined form before heating can run.
 7. Rejoin your normal Wi-Fi and visit **[http://lizard-lamps.local](http://lizard-lamps.local)**. If your network does not resolve that name, use the LAN IP shown on the connection success page, dashboard banner or Device page. Serial Monitor at 115200 baud also prints both addresses. The setup hotspot closes two minutes after a successful connection.
 
-Once targets and schedule are saved, the default page is the live overview, refreshed every 10 seconds. Other pages do not refresh while you edit forms. The interface works without downloading fonts, scripts or styles from the internet.
+Once the combined schedule and targets are saved, the default page is the live overview, refreshed every 10 seconds. Other pages do not refresh while you edit forms. The interface works without downloading fonts, scripts or styles from the internet.
 
-Identify your physical probes by their readings and displayed OneWire addresses. Use **Targets → Swap probe labels** if the basking and ambient labels are reversed. Probe addresses are discovered once when exactly two probes are attached, then saved; a missing probe is never silently replaced. To bind replacement probes, factory reset, attach both new probes and restart.
+Identify your physical probes by their readings and displayed OneWire addresses. Use **Probes → Swap probe labels** if the basking and ambient labels are reversed. Probe addresses are discovered once when exactly two probes are attached, then saved; a missing probe is never silently replaced. To bind replacement probes, factory reset, attach both new probes and restart.
 
 ## Where to open the dashboard
 
@@ -45,13 +45,13 @@ Identify your physical probes by their readings and displayed OneWire addresses.
 
 The schedule repeats daily in **Europe/London** local time. Lamp 1 runs from its start time until lamp 2's start time; lamp 2 runs until lamp 1 starts again. Start times must differ. For example, 07:00 / 19:00 selects lamp 1 during the day and lamp 2 overnight. Reversing those times makes lamp 1 cover the overnight period.
 
-Only the selected lamp receives a nonzero power command. On a lamp change, both outputs are commanded off for a 20ms settling period before the new output is enabled. Temperature targets remain the same for both lamps.
+Only the selected lamp receives a nonzero power command. On a lamp change, both outputs are commanded off for a 20ms settling period before the new output is enabled. Each period has its own basking and ambient targets; switching periods changes the selected lamp and both target temperatures together. The overview shows the active period’s targets.
 
 Both probes influence the selected lamp:
 
 ```text
-largest deficit = max(basking target - basking temperature,
-                      ambient target - ambient temperature)
+largest deficit = max(active period basking target - basking temperature,
+                      active period ambient target - ambient temperature)
 requested power = clamp(largest deficit / 3°C, 0, 1) × 100%
 ```
 
@@ -59,9 +59,13 @@ The sketch rounds to a whole percentage and enables Mycila's power lookup table.
 
 Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
 
-Heating is also disabled until both targets and schedule are saved and a valid clock is available. After time has been set, scheduling continues locally without Wi-Fi. After a power interruption, wait for NTP or press **Use browser time** on the overview; check the phone/computer clock first. JavaScript also supplies fallback time when saving setup/settings forms.
+Heating is also disabled until the combined schedule and all four targets are saved and a valid clock is available. After time has been set, scheduling continues locally without Wi-Fi. After a power interruption, wait for NTP or press **Use browser time** on the overview; check the phone/computer clock first. JavaScript also supplies fallback time when saving setup/settings forms.
 
 DST behavior is based on the current wall-clock period: spring skips nonexistent local times; the autumn repeated hour follows the repeated local times. The controller selects the appropriate lamp from the current time, rather than replaying missed events.
+
+## Upgrading existing devices
+
+Saved settings from the original two-target firmware are migrated automatically. Existing Wi-Fi credentials, dashboard password, switch times and probe mappings are preserved. The previous basking and ambient targets are copied into **both** day and night so upgrading does not unexpectedly change heating behavior. Edit **Schedule & temps** to choose different temperatures for each period. Incomplete previous setup stays disabled until the combined form is saved.
 
 ## Wi-Fi recovery and reset
 
@@ -123,6 +127,7 @@ Run native tests with a C++17 compiler:
 
 - `lizard-lamps.ino`: sensor conversions, dimmer hardware and local control loop.
 - `ControlLogic.h`: hardware-independent schedule, temperature control and validation.
+- `ConfigData.h`: per-period configuration, validation and migration of earlier saved settings.
 - `DeviceState.h/.cpp`: synchronized configuration/status and persistent storage.
 - `DeviceWeb.cpp`: setup, networking, clock, server-rendered pages and web forms.
 - `WebStyle.h`: embedded responsive design.

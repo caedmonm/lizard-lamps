@@ -42,6 +42,12 @@ int main() {
   assert(power(19, 10, std::numeric_limits<float>::infinity(), 19) == 0);
   assert(!validTarget(4.9f) && !validTarget(40.1f));
   assert(validTarget(5) && validTarget(40));
+  float dayNightTargets[2][2] = {{30, 25}, {20, 18}};
+  assert(periodPower(scheduledLamp(419, 420, 1140), 28, 24, dayNightTargets) == 0);
+  assert(periodPower(scheduledLamp(420, 420, 1140), 28, 24, dayNightTargets) == 67);
+  assert(periodPower(scheduledLamp(1140, 420, 1140), 28, 24, dayNightTargets) == 0);
+  assert(periodPower(1, 18, 17, dayNightTargets) == 67);
+  assert(periodPower(-1, 18, 17, dayNightTargets) == 0);
   int minute;
   assert(parseTime("00:00", minute) && minute == 0);
   assert(parseTime("23:59", minute) && minute == 1439);
