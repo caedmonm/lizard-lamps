@@ -1,61 +1,31 @@
 # Roadmap
 
-The supplied sketch is the working starting point. Preserve its hardware integration while developing a lightweight, maintainable controller. The full requirements and examples are in [the original briefing](PROJECT-BRIEF.md).
+The controller now hosts its own interface on the ESP32. The earlier proposal for a REST API has been dropped. No cloud or separate backend is planned.
 
-## Phase 1 — Core controller
+## Implemented prototype
 
-- Separate temperature measurement, proportional heating calculations and dimmer hardware into logical modules.
-- Bind each probe to its unique OneWire address.
-- Maintain independent targets, greatest-deficit control and one selected lamp.
-- Add stale-reading detection, explicit fault handling and independently testable control calculations.
-- Verify startup, partial initialization, sensor faults and zero-cross loss with outputs commanded off.
+- First-boot password-protected hotspot, captive DNS and Wi-Fi provisioning.
+- Persistent credentials, settings and fixed OneWire probe identities.
+- Responsive on-device overview, target editor, daily lamp schedule and device/reset pages.
+- Independent basking/ambient targets and greatest-deficit proportional heating.
+- Local daily schedule, midnight wrap, London daylight saving and clock fallback.
+- Wi-Fi recovery hotspot and authenticated, CSRF-protected web forms.
+- Stale/invalid/over-limit temperature shutdown and zero-cross fault shutdown.
+- Separate web task and hardware control loop, with output-off acknowledgment before configuration writes or reset.
+- Native control/web-handler tests and ESP32 compilation.
 
-## Phase 2 — Configuration and persistence
+## Next priority — Hardware validation
 
-- Create a validated configuration structure for targets, active lamp and fade range.
-- Save configuration in Preferences/NVS or LittleFS.
-- Define safe defaults and handling for missing, invalid or corrupted settings.
+Run the [validation checklist](VALIDATION.md) on the actual board, dimmer and probes. Confirm output behavior during startup, reset, lamp transitions, sensor faults, time loss and network/flash operations. Validate thermal/electrical protection independently.
 
-## Phase 3 — Wi-Fi and API
+## Possible later improvements
 
-- Add configurable Wi-Fi credentials, reconnection and NTP time synchronization.
-- Keep heating control independent of networking and HTTP request handling.
-- Implement validated status/configuration APIs with changes applied without rebooting.
+- Multiple daily lamp-switch entries or a weekly schedule.
+- Configurable timezone, schedule-dependent targets and explicit heating-off periods.
+- Temperature history, visual graphs and alarms.
+- Latched faults, watchdog/recovery policy and additional diagnostics.
+- OTA firmware updates with clear output-off behavior.
+- Probe replacement/pairing without resetting all settings.
+- Installer-friendly printed hotspot credentials and dashboard password changes.
 
-Proposed endpoints, not yet available:
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/api/status` | Temperatures, targets, lamp power and health |
-| GET / PUT | `/api/config` | Read/update controller configuration |
-| GET / PUT | `/api/schedule` | Read/update schedules |
-| POST | `/api/override` | Temporary override |
-
-## Phase 4 — Local scheduling
-
-- Persist weekly schedules with multiple daily entries, independent targets and active lamp selection.
-- Support explicit heating-off periods and expiring manual overrides.
-- Support a configurable time zone, initially Europe/London, including daylight saving changes.
-- Restore configuration after reboot and resolve the current period once valid time is available.
-- Define behavior when time/schedule is unavailable, avoiding unintended heating.
-
-## Phase 5 — Web interface
-
-- Responsive live dashboard with temperatures, targets, selected lamp, output and faults.
-- Daily/weekly schedule editor, manual override controls and settings.
-- Lightweight frontend served by the ESP32 and communicating through its API.
-
-## Phase 6 — Improvements
-
-Consider temperature history, graphs, OTA updates, configurable alarms and diagnostics.
-
-## Decisions still to make
-
-- Exact dimmer model, lamp compatibility and independently validated safety hardware.
-- Physical probe mapping, calibration and installation-specific temperature bounds.
-- Safe time-unavailable policy, clock holdover and daylight-saving transition semantics.
-- Schedule interpolation versus immediate setpoint changes, midnight rollover and override precedence.
-- API authentication, provisioning and local-network access policy.
-- Persistence format, fault recovery and watchdog strategy.
-
-These are open design questions; the project does not yet define their behavior.
+The current product uses two daily start times and constant per-probe targets. These choices keep the initial interface simple; richer scheduling is a future option.

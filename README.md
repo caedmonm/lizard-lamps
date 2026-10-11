@@ -1,43 +1,74 @@
 # Lizard Lamps — ESP32 Dual Heat Lamp Controller
 
-An open source ESP32 controller for two AC heat lamps, originally built for a reptile enclosure. Two DS18B20 probes independently request heat, and a two-channel TRIAC dimmer applies proportional power to one selected lamp.
+A self-contained ESP32 controller for two AC heat lamps, originally built for a reptile enclosure. It hosts its own modern, responsive web dashboard: connect to its setup hotspot, enter Wi-Fi details, then manage your habitat from the device's IP address.
 
-**Status: early hardware prototype.** The Arduino sketch is preserved as supplied. Wi-Fi, REST API, persistent configuration, schedules and a web interface are planned, not implemented.
+**No separate REST API, cloud service, frontend build or external server is required.** The device serves HTML pages and accepts ordinary web form submissions. All CSS and JavaScript are embedded in firmware.
 
-> This project controls 230V mains heating equipment. Use a suitable protective enclosure, mains protection and an independent, mains-rated over-temperature cutout. A TRIAC can fail short-circuit, leaving a lamp on despite software commands. See [safety and known limitations](docs/SAFETY.md) before using the hardware.
+## What it does
 
-## How it works
+- Password-protected Wi-Fi setup hotspot with a captive-portal DNS redirect.
+- Local dashboard showing **basking spot** and **ambient** temperatures, targets, selected lamp, requested power, connectivity and faults.
+- Two daily start times for switching between lamp 1 and lamp 2, including periods spanning midnight.
+- Independent basking and ambient targets, with proportional heating on the selected lamp.
+- Persistent Wi-Fi details, dashboard password, targets, schedule and fixed probe addresses.
+- Probe label swapping, Wi-Fi recovery after disconnection and a confirmed factory reset.
+- Europe/London clock with daylight saving, NTP synchronization and browser-time fallback.
 
-Both sensors influence the selected lamp; sensors are not paired exclusively with individual lamps. Only one lamp receives power at a time.
+**Status: implemented prototype.** Firmware compilation and native control/web-handler tests pass; physical operation, captive-portal behavior and electrical/thermal safety still require hardware validation. See [validation](docs/VALIDATION.md) and [safety notes](docs/SAFETY.md).
+
+> This project controls 230V mains heating equipment. Use suitable enclosure/protection and an independent, mains-rated over-temperature cutout. A TRIAC can fail short-circuit and leave a lamp on despite software commands.
+
+## First-time setup
+
+1. Build and upload the firmware, with both DS18B20 probes connected.
+2. Open Serial Monitor at **115200 baud**. It prints the hotspot name (`LizardLamps-XXXXXX`) and its unique password. Keep this password for Wi-Fi recovery.
+3. Join that hotspot from a phone or computer. If the setup page does not open automatically, visit **http://192.168.4.1**. Stay connected if your phone warns that the hotspot has no internet.
+4. Enter the name and password of your **2.4GHz** Wi-Fi network and choose a dashboard password of 8–63 characters. Empty Wi-Fi passwords are supported for open networks.
+5. When prompted, sign in with username **admin** and your chosen dashboard password.
+6. Save the **basking spot** and **ambient** targets, then save the daily lamp schedule. Initial values are 19°C for each target, lamp 1 at 07:00 and lamp 2 at 19:00; they must be explicitly saved before heating can run.
+7. Read the assigned LAN IP from Serial Monitor or the dashboard banner/Device page. Rejoin your normal Wi-Fi and open that IP in a browser. The setup hotspot closes two minutes after a successful connection.
+
+Once targets and schedule are saved, the default page is the live overview, refreshed every 10 seconds. Other pages do not refresh while you edit forms. The interface works without downloading fonts, scripts or styles from the internet.
+
+Identify your physical probes by their readings and displayed OneWire addresses. Use **Targets → Swap probe labels** if the basking and ambient labels are reversed. Probe addresses are discovered once when exactly two probes are attached, then saved; a missing probe is never silently replaced. To bind replacement probes, factory reset, attach both new probes and restart.
+
+## Schedule and temperature control
+
+The schedule repeats daily in **Europe/London** local time. Lamp 1 runs from its start time until lamp 2's start time; lamp 2 runs until lamp 1 starts again. Start times must differ. For example, 07:00 / 19:00 selects lamp 1 during the day and lamp 2 overnight. Reversing those times makes lamp 1 cover the overnight period.
+
+Only the selected lamp receives a nonzero power command. On a lamp change, both outputs are commanded off for a 20ms settling period before the new output is enabled. Temperature targets remain the same for both lamps.
+
+Both probes influence the selected lamp:
 
 ```text
-largest deficit = max(target 1 - temperature 1, target 2 - temperature 2)
-requested power = clamp(largest deficit / fade range, 0, 1) × 100%
+largest deficit = max(basking target - basking temperature,
+                      ambient target - ambient temperature)
+requested power = clamp(largest deficit / 3°C, 0, 1) × 100%
 ```
 
-The sketch rounds requested power to a whole percentage and enables the Mycila power lookup table. Output is a requested control percentage, not measured electrical power.
+The sketch rounds to a whole percentage and enables Mycila's power lookup table. A 2°C greatest deficit requests approximately 67% power. Requested power is not measured electrical wattage.
 
-| Greatest temperature deficit | Requested power |
-| --- | --- |
-| 0°C or less | 0% |
-| 0.5°C | 17% |
-| 1°C | 33% |
-| 1.5°C | 50% |
-| 2°C | 67% |
-| 2.5°C | 83% |
-| 3°C or greater | 100% |
+Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
 
-The supplied firmware defaults to **19°C for both targets**, **lamp 1** (`activeLamp = 0`) and a **3°C fade range**. The original briefing uses 15°C as an illustrative initial configuration. These are development values, not recommended husbandry temperatures.
+Heating is also disabled until both targets and schedule are saved and a valid clock is available. After time has been set, scheduling continues locally without Wi-Fi. After a power interruption, wait for NTP or press **Use browser time** on the overview; check the phone/computer clock first. JavaScript also supplies fallback time when saving setup/settings forms.
 
-Temperatures are requested approximately once per second using asynchronous 12-bit conversions with a 750ms wait. The sketch commands outputs off when a sensor reading is non-finite or disconnected, lamp selection is invalid, dimmer initialization fails, or zero-cross detection goes offline. Additional fault handling remains necessary; see [known limitations](docs/SAFETY.md).
+DST behavior is based on the current wall-clock period: spring skips nonexistent local times; the autumn repeated hour follows the repeated local times. The controller selects the appropriate lamp from the current time, rather than replaying missed events.
+
+## Wi-Fi recovery and reset
+
+The device reconnects automatically. If disconnected for 30 seconds, it opens the same password-protected recovery hotspot. Saved control settings remain active when the clock and hardware are healthy. Visit 192.168.4.1 and sign in to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
+
+**Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule, probe mapping and hotspot password, clears the ESP32 station credentials, and restarts. A new hotspot password is printed in Serial Monitor.
+
+The dashboard uses HTTP Digest authentication and a per-boot form token. Wi-Fi and dashboard credentials are stored in device NVS; flash encryption is not configured by this project. It is intended for a trusted local network; do not expose its HTTP service directly to the internet.
 
 ## Hardware
 
 - ESP32-WROOM-32 development board.
-- Two DS18B20 temperature probes sharing a OneWire bus, with a 4.7kΩ pull-up to 3V3.
+- Two DS18B20 temperature probes sharing GPIO4, with a 4.7kΩ pull-up to 3V3.
 - Two-channel AC TRIAC dimmer with zero-cross detection and ESP32-compatible logic.
-- Two 230V heat lamps, approximately 150W each; verify compatibility with phase-angle dimming.
-- USB power supply, protective enclosure, mains protection and independent thermal cutout.
+- Two compatible 230V heat lamps, approximately 150W each.
+- USB supply, protective enclosure, mains protection and independent thermal cutout.
 
 | Component | Signal | ESP32 connection |
 | --- | --- | --- |
@@ -50,17 +81,13 @@ Temperatures are requested approximately once per second using asynchronous 12-b
 | DS18B20 probes | Power | 3V3 |
 | DS18B20 probes | Ground | GND |
 
-This table describes the intended low-voltage signals, not mains wiring instructions. The exact dimmer model, isolation, signal levels and load ratings must be verified. The sketch assumes **50Hz mains** and a **10,000µs half-cycle**.
+This describes intended low-voltage signals, not mains wiring. Verify the exact dimmer's voltage, isolation, signal levels, load compatibility and ratings. The sketch assumes **50Hz mains** and a **10,000µs half-cycle**.
 
 ## Build and upload
 
-1. Clone this repository into a folder named `lizard-lamps` so Arduino's sketch folder matches `lizard-lamps.ino`.
-2. Install the Espressif **ESP32 Arduino Core 3.x** and select the board matching your ESP32-WROOM-32 development board (typically **ESP32 Dev Module**).
-3. Install the libraries listed below using Arduino IDE's Library Manager.
-4. Open `lizard-lamps.ino`, review its configuration, select your board and serial port, and compile/upload.
-5. Open Serial Monitor at **115200 baud** to inspect temperatures, targets, selected lamp and requested power.
+Clone into a folder named `lizard-lamps`. In Arduino IDE, open `lizard-lamps.ino`, install the Espressif ESP32 core and libraries below, then select your ESP32-WROOM-32 board (typically **ESP32 Dev Module**) and serial port. All root `.h`/`.cpp` files are needed; do not copy only the sketch.
 
-| Dependency | Version used for the initial build check | Upstream |
+| Dependency | Version used for compilation | Upstream |
 | --- | --- | --- |
 | Espressif ESP32 core | 3.3.12 | [arduino-esp32](https://github.com/espressif/arduino-esp32) |
 | OneWire | 2.3.8 | [OneWire](https://github.com/PaulStoffregen/OneWire) |
@@ -68,7 +95,7 @@ This table describes the intended low-voltage signals, not mains wiring instruct
 | MycilaDimmer | 3.0.1 | [MycilaDimmer](https://github.com/mathieucarbou/MycilaDimmer) |
 | MycilaPulseAnalyzer | 3.0.10 | [MycilaPulseAnalyzer](https://github.com/mathieucarbou/MycilaPulseAnalyzer) |
 
-For Arduino CLI with these dependencies installed:
+WiFi, WebServer, DNSServer and Preferences come with the ESP32 core. The task separation assumes the dual-core ESP32-WROOM-32; single-core variants are not supported by this configuration.
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32 .
@@ -77,28 +104,21 @@ arduino-cli upload --fqbn esp32:esp32:esp32 --port <your-serial-port> .
 arduino-cli monitor --port <your-serial-port> --config baudrate=115200
 ```
 
-A successful compile does not establish electrical, thermal or animal safety. Hardware validation is separate.
+Run native tests with a C++17 compiler:
 
-## Configuration
-
-Current configuration lives near the top of `lizard-lamps.ino`:
-
-```cpp
-float targetTemperatures[2] = {19.0, 19.0};
-int activeLamp = 0; // 0 = lamp 1, 1 = lamp 2
-const float FADE_TEMP_RANGE = 3.0;
+```sh
+./tests/run.sh
 ```
 
-Change these values and rebuild/upload. There is currently no network interface or persistent settings store. Sensor identities currently use OneWire discovery indices, which may change; fixed hardware addresses are a priority.
+## Structure and documentation
 
-## Project documentation
-
-- [Complete original briefing](docs/PROJECT-BRIEF.md): hardware, algorithm, proposed endpoints, example status JSON, schedules, architecture and development requirements.
-- [Roadmap](docs/ROADMAP.md): staged implementation plan and unresolved design decisions.
-- [Safety and known limitations](docs/SAFETY.md): current behavior, gaps and hardware validation needs.
-- [Contributing](CONTRIBUTING.md): how to propose changes and report results.
-
-The long-term goal is a standalone Wi-Fi controller with local weekly schedules, a REST API and a responsive web interface. Heating control should continue autonomously when networking is unavailable.
+- `lizard-lamps.ino`: sensor conversions, dimmer hardware and local control loop.
+- `ControlLogic.h`: hardware-independent schedule, temperature control and validation.
+- `DeviceState.h/.cpp`: synchronized configuration/status and persistent storage.
+- `DeviceWeb.cpp`: setup, networking, clock, server-rendered pages and web forms.
+- `WebStyle.h`: embedded responsive design.
+- [Safety and limitations](docs/SAFETY.md), [validation](docs/VALIDATION.md), [roadmap](docs/ROADMAP.md), [contributing](CONTRIBUTING.md).
+- [Original briefing](docs/PROJECT-BRIEF.md) and [original sketch](docs/original/lizard-lamps.ino) are historical references. The original API/backend plan has been superseded.
 
 ## License
 

@@ -1,260 +1,143 @@
-
 #include <Arduino.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <MycilaDimmers.h>
 #include <MycilaPulseAnalyzer.h>
-#include <math.h>
+#include <time.h>
+#include "DeviceState.h"
+#include "ControlLogic.h"
 
-// ==========================================
-// CONFIGURATION
-// ==========================================
-
-// Independent temperature targets
-float targetTemperatures[2] = {
-  19.0,  // Sensor 1 target
-  19.0   // Sensor 2 target
-};
-
-// Which physical lamp to control
-int activeLamp = 0;  // 0 = Lamp 1, 1 = Lamp 2
-
-// Degrees below target to reach full power
-const float FADE_TEMP_RANGE = 3.0;
-
-// Temperature sensors
-#define ONE_WIRE_PIN 4
-
-// AC dimmer
-#define ZERO_CROSS_PIN GPIO_NUM_23
-#define DIMMER_PIN_1   GPIO_NUM_25
-#define DIMMER_PIN_2   GPIO_NUM_26
-
-const unsigned long TEMP_INTERVAL_MS = 1000;
-const unsigned long TEMP_CONVERSION_MS = 750;
-
-// ==========================================
-// HARDWARE
-// ==========================================
-
-OneWire oneWire(ONE_WIRE_PIN);
+constexpr int OneWirePin = 4;
+constexpr gpio_num_t ZeroCrossPin = GPIO_NUM_23;
+constexpr gpio_num_t DimmerPins[] = {GPIO_NUM_25, GPIO_NUM_26};
+OneWire oneWire(OneWirePin);
 DallasTemperature sensors(&oneWire);
-
 Mycila::PulseAnalyzer pulseAnalyzer;
-Mycila::ThyristorDimmer lamp1;
-Mycila::ThyristorDimmer lamp2;
-
-// ==========================================
-// STATE
-// ==========================================
-
+Mycila::ThyristorDimmer lamp1, lamp2;
 bool dimmerReady = false;
-bool tempPending = false;
-bool sensorsHealthy = false;
+unsigned long conversionStarted = 0;
+bool conversionPending = false;
+float temperatures[2] = {NAN, NAN};
+unsigned long lastReading = 0;
+bool sensorReadOK = false;
+int previousLamp = -1;
+unsigned long lampChangedAt = 0;
+uint8_t readingProbes[2][8] = {};
 
-unsigned long tempStarted = 0;
-
-float temperatures[2] = {
-  DEVICE_DISCONNECTED_C,
-  DEVICE_DISCONNECTED_C
-};
-
-int currentPower = 0;
-
-// ==========================================
-// TEMPERATURE
-// ==========================================
-
-void requestTemps() {
+void requestTemperatures() {
   sensors.requestTemperatures();
-  tempStarted = millis();
-  tempPending = true;
+  conversionStarted = millis();
+  conversionPending = true;
 }
-
-bool validTemp(float t) {
-  return isfinite(t) &&
-         t != DEVICE_DISCONNECTED_C;
-}
-
-void printTemp(float t) {
-  if (!validTemp(t)) {
-    Serial.print("Disconnected");
+int applyPower(int selected, int percent) {
+  if (!dimmerReady) return 0;
+  // Break before make: both channels are off before changing selected lamps.
+  if (selected != previousLamp) {
+    lamp1.setDutyCycle(0);
+    lamp2.setDutyCycle(0);
+    previousLamp = selected;
+    lampChangedAt = millis();
+  }
+  // Allow a full 50Hz cycle for the previous TRIAC to stop conducting.
+  if (millis() - lampChangedAt < 20) {
+    lamp1.setDutyCycle(0);
+    lamp2.setDutyCycle(0);
+    return 0;
+  }
+  // Always write the inactive output first, including reverse transitions.
+  if (selected == 0) {
+    lamp2.setDutyCycle(0);
+    lamp1.setDutyCycle(percent / 100.0f);
   } else {
-    Serial.print(t, 2);
-    Serial.print(" C");
+    lamp1.setDutyCycle(0);
+    lamp2.setDutyCycle(selected == 1 ? percent / 100.0f : 0);
   }
+  return selected >= 0 ? percent : 0;
 }
-
-// ==========================================
-// LAMP CONTROL
-// ==========================================
-
-void setLampPower(int percent) {
-  percent = constrain(percent, 0, 100);
-
-  float duty = percent / 100.0f;
-
-  // Only the selected lamp receives power
-  lamp1.setDutyCycle(activeLamp == 0 ? duty : 0.0f);
-  lamp2.setDutyCycle(activeLamp == 1 ? duty : 0.0f);
-
-  currentPower = percent;
-}
-
-void updateLampControl() {
-  int requestedPower = 0;
-
-  bool safe =
-    dimmerReady &&
-    pulseAnalyzer.isOnline() &&
-    sensorsHealthy &&
-    (activeLamp == 0 || activeLamp == 1) &&
-    FADE_TEMP_RANGE > 0;
-
-  if (safe) {
-    // Calculate how far below target each sensor is
-    float deficit1 =
-      targetTemperatures[0] - temperatures[0];
-
-    float deficit2 =
-      targetTemperatures[1] - temperatures[1];
-
-    // Either sensor can request heating.
-    // Use whichever requires the most heat.
-    float deficit = max(deficit1, deficit2);
-
-    float duty = constrain(
-      deficit / FADE_TEMP_RANGE,
-      0.0f,
-      1.0f
-    );
-
-    requestedPower = roundf(duty * 100.0f);
-  }
-
-  if (dimmerReady) {
-    setLampPower(requestedPower);
-  } else {
-    currentPower = 0;
-  }
-}
-
-// ==========================================
-// SETUP
-// ==========================================
-
 void setup() {
   Serial.begin(115200);
-  delay(1000);
-
+  pinMode(DimmerPins[0], OUTPUT);
+  pinMode(DimmerPins[1], OUTPUT);
+  digitalWrite(DimmerPins[0], LOW);
+  digitalWrite(DimmerPins[1], LOW);
+  stateMutex = xSemaphoreCreateMutex();
+  if (!stateMutex) { Serial.println("State initialization failed; heating disabled"); while (true) delay(1000); }
+  loadConfig();
   sensors.begin();
   sensors.setResolution(12);
   sensors.setWaitForConversion(false);
-
-  Serial.printf(
-    "Found %d temperature sensors\n",
-    sensors.getDeviceCount()
-  );
-
-  requestTemps();
-
-  // UK 50Hz mains
-  Mycila::Dimmer::setSemiPeriod(10000);
-
-  lamp1.setPin(DIMMER_PIN_1);
-  lamp2.setPin(DIMMER_PIN_2);
-
+  // Bind discovered addresses once; never silently replace a missing probe.
+  if (!deviceConfig.probesSet && sensors.getDeviceCount() == 2) {
+    DeviceConfig candidate = deviceConfig;
+    candidate.probesSet = sensors.getAddress(candidate.probes[0], 0) &&
+                          sensors.getAddress(candidate.probes[1], 1);
+    if (candidate.probesSet) {
+      candidate.probesSet = candidate.probes[0][0] == 0x28 && candidate.probes[1][0] == 0x28 &&
+        memcmp(candidate.probes[0], candidate.probes[1], 8) != 0;
+      if (candidate.probesSet) saveConfig(candidate);
+    }
+  }
+  Mycila::Dimmer::setSemiPeriod(10000); // 50Hz mains
+  lamp1.setPin(DimmerPins[0]);
+  lamp2.setPin(DimmerPins[1]);
   lamp1.enablePowerLUT(true);
   lamp2.enablePowerLUT(true);
-
-  bool started1 = lamp1.begin();
-  bool started2 = lamp2.begin();
-
-  if (started1 && started2) {
-    lamp1.setDutyCycle(0);
-    lamp2.setDutyCycle(0);
-
+  bool first = lamp1.begin();
+  bool second = lamp2.begin();
+  if (first) lamp1.setDutyCycle(0);
+  if (second) lamp2.setDutyCycle(0);
+  if (first && second) {
     lamp1.setOnline(true);
     lamp2.setOnline(true);
-
-    pulseAnalyzer.onZeroCross(
-      Mycila::ThyristorDimmer::onZeroCross
-    );
-
-    dimmerReady = pulseAnalyzer.begin(ZERO_CROSS_PIN);
+    pulseAnalyzer.onZeroCross(Mycila::ThyristorDimmer::onZeroCross);
+    dimmerReady = pulseAnalyzer.begin(ZeroCrossPin);
   }
-
-  if (!dimmerReady) {
-    lamp1.end();
-    lamp2.end();
-    Serial.println("Dimmer initialization failed");
-  } else {
-    Serial.println("Dimmer initialized");
-  }
-
-  Serial.printf(
-    "Targets: %.1f C / %.1f C | Active lamp: %d\n",
-    targetTemperatures[0],
-    targetTemperatures[1],
-    activeLamp + 1
-  );
+  if (!dimmerReady) { lamp1.end(); lamp2.end(); }
+  requestTemperatures();
+  controllerRunning = true;
+  startDeviceWeb();
 }
-
-// ==========================================
-// LOOP
-// ==========================================
-
 void loop() {
   unsigned long now = millis();
-
-  if (tempPending &&
-      now - tempStarted >= TEMP_CONVERSION_MS) {
-
-    temperatures[0] = sensors.getTempCByIndex(0);
-    temperatures[1] = sensors.getTempCByIndex(1);
-
-    sensorsHealthy =
-      sensors.getDeviceCount() >= 2 &&
-      validTemp(temperatures[0]) &&
-      validTemp(temperatures[1]);
-
-    tempPending = false;
-
-    updateLampControl();
-
-    Serial.print("Sensor 1: ");
-    printTemp(temperatures[0]);
-
-    Serial.printf(
-      " (target %.1f)",
-      targetTemperatures[0]
-    );
-
-    Serial.print(" | Sensor 2: ");
-    printTemp(temperatures[1]);
-
-    Serial.printf(
-      " (target %.1f)",
-      targetTemperatures[1]
-    );
-
-    Serial.printf(
-      " | Lamp: %d | Power: %d%%\n",
-      activeLamp + 1,
-      currentPower
-    );
+  DeviceConfig config = configSnapshot();
+  if (memcmp(readingProbes, config.probes, sizeof(readingProbes)) != 0) {
+    memcpy(readingProbes, config.probes, sizeof(readingProbes));
+    sensorReadOK = false;
   }
-
-  // Request temperatures every second
-  if (!tempPending &&
-      now - tempStarted >= TEMP_INTERVAL_MS) {
-    requestTemps();
+  if (conversionPending && now - conversionStarted >= 750) {
+    for (int i = 0; i < 2; ++i)
+      temperatures[i] = config.probesSet ? sensors.getTempC(config.probes[i]) : NAN;
+    sensorReadOK = config.probesSet && Control::validTemperature(temperatures[0]) &&
+                   Control::validTemperature(temperatures[1]);
+    lastReading = millis();
+    conversionPending = false;
+    Serial.printf("Basking %.2f C | Ambient %.2f C\n", temperatures[0], temperatures[1]);
   }
-
-  // Turn off if zero-cross detection is lost
-  if (dimmerReady &&
-      !pulseAnalyzer.isOnline() &&
-      currentPower > 0) {
-    setLampPower(0);
-  }
+  if (!conversionPending && now - conversionStarted >= 1000) requestTemperatures();
+  time_t epoch = time(nullptr);
+  bool clockValid = epoch >= 1704067200 && epoch < 4102444800LL;
+  tm local = {};
+  if (clockValid) localtime_r(&epoch, &local);
+  int selected = clockValid && config.scheduleSet ?
+    Control::scheduledLamp(local.tm_hour * 60 + local.tm_min, config.starts[0], config.starts[1]) : -1;
+  bool healthy = sensorReadOK && (millis() - lastReading <= Control::StaleAfterMs);
+  bool online = dimmerReady && pulseAnalyzer.isOnline();
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  bool stopped = maintenance || resetRequested;
+  xSemaphoreGive(stateMutex);
+  bool enabled = config.targetsSet && config.scheduleSet && clockValid && healthy && online && !stopped;
+  int power = enabled ? Control::power(temperatures[0], temperatures[1], config.targets[0], config.targets[1]) : 0;
+  power = applyPower(selected, power);
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  deviceStatus.temperatures[0] = temperatures[0];
+  deviceStatus.temperatures[1] = temperatures[1];
+  deviceStatus.sensorsHealthy = healthy;
+  deviceStatus.dimmerOnline = online;
+  deviceStatus.clockValid = clockValid;
+  deviceStatus.activeLamp = selected;
+  deviceStatus.power = power;
+  if (stopped && power == 0) maintenanceAcknowledged = true;
+  deviceStatus.lastReading = lastReading;
+  xSemaphoreGive(stateMutex);
+  delay(2);
 }

@@ -1,40 +1,39 @@
 # Safety and known limitations
 
-This is an early prototype controlling 230V mains heating equipment. The software has not been certified or validated as a safety controller. Compilation alone cannot validate hardware operation.
+This is an implemented prototype controlling 230V heating equipment, not a certified safety controller. Compilation and mocked tests do not establish electrical, thermal or animal safety.
 
 ## Independent hardware protection
 
-Use an independent, mains-rated over-temperature cutout: a failed TRIAC can remain conductive even when the firmware requests zero power. Mains installation, isolation, enclosure, earthing, circuit protection, cable ratings and thermal suitability must be independently verified by someone competent to perform that work.
+Use an independent, mains-rated over-temperature cutout: a failed TRIAC can remain conductive despite zero-duty commands. Mains installation, isolation, enclosure, earthing, circuit protection, cable ratings and thermal suitability must be independently verified by someone competent to perform that work.
 
-Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current ratings, heat dissipation and compatibility with the chosen lamps. The supplied connection table is not a schematic or a complete mains design. Do not assume an unspecified module can be powered from 3V3 safely.
+Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current rating, heat dissipation and phase-angle compatibility with the lamps. The connection table is not a complete schematic or mains design. Do not assume an unspecified module can safely use 3V3.
 
-## What the supplied sketch checks
+## Firmware safeguards
 
-- Heating demand starts at zero while sensor health is false.
-- After successful dimmer startup, both channels receive a zero-duty command before normal control.
-- Either disconnected or non-finite sensor reading makes sensor health false and requests zero output.
-- Invalid active lamp selection or a non-positive fade range requests zero output.
-- Loss of zero-cross detection requests zero output when the dimmer is initialized.
-- Normal output commands give power only to the selected lamp.
+- Output pins are driven low during startup; initialized dimmers receive zero-duty commands.
+- Both targets, schedule and a valid clock are required before heating.
+- Probes use saved addresses, with no automatic replacement of missing probes.
+- Disconnected, non-finite, below -20°C, or at/above 45°C readings disable heating.
+- A last-reading timeout of 3 seconds disables heating when the loop can evaluate it.
+- Invalid configuration and unavailable zero-cross detection request zero output.
+- Lamp switching commands both outputs off and waits 20ms before enabling the new selected lamp.
+- Configuration writes wait for the control loop to acknowledge output off; unsuccessful writes do not apply the proposed settings.
+- Factory reset waits for output-off acknowledgment before erasing data and restarting.
+- HTTP/network activity runs in a separate task from the control loop.
 
-These are software commands, not verification that a lamp is physically off. Output behavior during boot, reset, partial initialization, power loss and hardware faults must be checked on the real hardware.
+The 45°C threshold is fixed in `ControlLogic.h` and must be assessed for the actual enclosure. It is not an independent thermal cutout. Fault shutdown is not latched: heating may resume once readings and other required conditions are healthy.
 
-## Gaps to address before dependable deployment
+Both probes can request heating from the same selected lamp. One warm probe does not prevent a colder probe from requesting full power while temperatures are below the limit.
 
-- Sensor readings use discovery indices rather than fixed OneWire addresses; probe identities can change.
-- There is no independent stale-reading timeout or conversion-freshness verification.
-- Validation only rejects disconnected and non-finite readings. There is no explicit plausibility range, startup-value handling or software maximum-temperature cutoff.
-- Target temperatures have no bounds or explicit finite-value validation.
-- There is no watchdog strategy, latched fault state, alarm or fault history.
-- The sketch does not measure actual lamp power or verify that an output command took effect.
-- Startup currently includes a one-second delay; output pin behavior before initialization needs hardware verification.
-- The zero-cross health check cannot protect against a shorted TRIAC or an unresponsive processor.
-- API, scheduling, persistence and network isolation requirements are not yet implemented.
+## Remaining limitations
 
-Both sensors can request heating from the selected lamp. One warm sensor does not prevent a colder sensor from requesting full output. Independent over-temperature protection is therefore essential; setpoints alone do not provide a maximum-temperature limit.
+- Actual lamp power and physical output-off state are not measured.
+- A stale-reading check cannot shut down outputs if the processor/control task itself stops executing. There is no application-specific watchdog strategy or independent freshness verification of each DS18B20 conversion.
+- Startup/reset pin behavior, TRIAC timing, thermal limits and network/flash interference require real hardware verification.
+- Saved addresses are initially assigned by discovery order; users must identify and, if necessary, swap the physical probe labels.
+- The clock keeps running after network loss, but cannot retain valid wall time across a power interruption. Browser fallback relies on the user's phone/computer clock; NTP is unauthenticated.
+- Settings/credentials are stored in NVS without project-configured flash encryption. The web service uses HTTP and is intended for a trusted local network.
+- There are no latched alarms, fault history, scheduled heating-off periods or installation-specific calibration settings.
+- In a reset storage failure, heating remains disabled until the reset is retried or the controller is restarted; saved data must not be assumed erased.
 
-## Validation to report
-
-Record board and dimmer model, core/library versions, lamp type, probe addresses and wiring arrangement. Check startup/reset, each probe disconnect, zero-cross loss, lamp selection and power behavior under controlled conditions with appropriate independent protection. Record what was actually tested and what remains unverified.
-
-The original briefing's [safety requirements](PROJECT-BRIEF.md#6-safety-and-reliability) describe intended behavior, not completed guarantees.
+See the [hardware validation checklist](VALIDATION.md). The original briefing is historical and does not describe completed safety guarantees.

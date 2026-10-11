@@ -1,5 +1,7 @@
 # ESP32 Dual Heat Lamp Controller
 
+> Historical briefing. The API/backend proposal below has been superseded by an on-device web service with hotspot provisioning. See the [current README](../README.md) for implemented behavior and setup. The remainder of this original briefing is retained for context.
+
 ## Project overview
 
 This project is an ESP32-based temperature control system designed to manage two 230V heat lamps, initially for a reptile enclosure.
