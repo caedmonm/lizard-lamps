@@ -2,6 +2,7 @@
 #include "ControlLogic.h"
 #include "WebStyle.h"
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <Preferences.h>
@@ -12,7 +13,8 @@
 namespace {
 WebServer server(80);
 DNSServer dns;
-String hotspotName, hotspotPassword, csrf;
+String hotspotName, csrf;
+bool mdnsStarted = false;
 bool hotspot = false;
 bool reconnectRequested = false;
 unsigned long disconnectedSince = 0, connectedSince = 0, rebootAt = 0;
@@ -114,7 +116,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
   if (!c.ssid[0]) {
     h += "<div class='setup-shell'><div class='welcome'>" + brand() + "<div class='card'><span class='eyebrow'>Welcome home</span><h1>A little warmth.<br>A smarter habitat.</h1><p class='muted'>Connect your controller to Wi-Fi to start setting up your enclosure.</p>";
     if (error.length()) h += "<div class='notice error' role='alert'>" + escape(error) + "</div>";
-    h += wifiForm(true, c) + "</div><p class='footer'>Setup hotspot · 192.168.4.1 · Heating stays off during setup.</p></div></div>" + ending(); sendPage(h, code); return;
+    h += wifiForm(true, c) + "</div><p class='footer'>Join LizardLamps-XXXXXX without a password, then open <a href='http://192.168.4.1'>http://192.168.4.1</a>. Heating stays off during setup.</p></div></div>" + ending(); sendPage(h, code); return;
   }
   String view = forcedView.isEmpty() ? server.arg("view") : forcedView;
   if (view != "settings" && view != "schedule" && view != "device") view = c.targetsSet && c.scheduleSet ? "monitor" : "settings";
@@ -126,7 +128,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
   if (error.length()) h += "<div class='notice error' role='alert'>" + escape(error) + "</div>";
   if (server.hasArg("saved")) h += "<div class='notice success' role='status'>Your changes have been saved.</div>";
   if (hotspot) {
-    if (WiFi.status() == WL_CONNECTED) h += "<div class='notice success'>Connected to Wi-Fi. Rejoin your usual network and open <a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a>. This setup hotspot closes after two minutes.</div>";
+    if (WiFi.status() == WL_CONNECTED) h += "<div class='notice success'>Connected to Wi-Fi. Rejoin your usual network and open <a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a>. You can also use <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a> on your home Wi-Fi. This setup hotspot closes after two minutes.</div>";
     else h += "<div class='notice'>Setup hotspot is active. Waiting to connect to <strong>" + escape(c.ssid) + "</strong>. Check your Wi-Fi details on the <a href='/?view=device'>Device page</a> if connection fails.</div>";
   }
   if (!c.targetsSet || !c.scheduleSet) h += "<div class='notice'>Finish setup: save your <a href='/?view=settings'>temperature targets</a> and <a href='/?view=schedule'>daily schedule</a>. Heating stays off until both are saved and the clock is ready.</div>";
@@ -146,18 +148,19 @@ void render(const String& error = "", int code = 200, const String& forcedView =
   } else if (view == "settings") {
     h += "<section class='card'><h2>Temperature targets</h2><p class='muted'>Set the temperature you want at each probe. The greater temperature deficit controls the selected lamp.</p>" + formStart("/targets") + "<div class='fields'><div><label for='basking'>Basking spot · °C</label><input type='number' id='basking' name='basking' step='0.1' min='5' max='40' required value='" + String(c.targets[0], 1) + "'></div><div><label for='ambient'>Ambient · °C</label><input type='number' id='ambient' name='ambient' step='0.1' min='5' max='40' required value='" + String(c.targets[1], 1) + "'></div></div><p class='muted small gap'>Allowed range: 5–40°C. Power ramps over 3°C below target. Heating pauses if either probe reaches 45°C.</p><button>Save targets</button></form></section><section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
   } else {
-    h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Device IP</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule and probe mappings. The device will restart with a new setup hotspot password printed in Serial Monitor.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
+    h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule and probe mappings. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
   }
   h += "<p class='footer'>Independent hardware over-temperature protection is required.</p></main></div>" + ending(view == "monitor"); sendPage(h, code);
 }
 void startHotspot() {
   WiFi.mode(WIFI_AP_STA);
-  if (!WiFi.softAP(hotspotName.c_str(), hotspotPassword.c_str())) { Serial.println("Hotspot failed"); return; }
+  if (!WiFi.softAP(hotspotName.c_str())) { Serial.println("Hotspot failed"); return; }
   dns.start(53, "*", WiFi.softAPIP()); hotspot = true;
-  Serial.printf("Setup hotspot: %s | Password: %s | Open http://192.168.4.1\n", hotspotName.c_str(), hotspotPassword.c_str());
+  Serial.printf("Open setup hotspot: %s | No password | Open http://192.168.4.1\n", hotspotName.c_str());
 }
 void connectNetwork() {
   DeviceConfig c = configSnapshot();
+  if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
   WiFi.disconnect(false, false);
   if (c.ssid[0]) WiFi.begin(c.ssid, c.wifiPassword);
   disconnectedSince = millis(); connectedSince = 0; wasConnected = false;
@@ -168,9 +171,14 @@ void networkTick() {
   if (connected && !wasConnected) {
     connectedSince = millis();
     configTzTime(Zone, "pool.ntp.org", "time.nist.gov");
-    Serial.printf("Dashboard: http://%s (username: admin)\n", WiFi.localIP().toString().c_str());
+    mdnsStarted = MDNS.begin("lizard-lamps");
+    if (mdnsStarted) MDNS.addService("http", "tcp", 80);
+    Serial.printf("Dashboard: http://lizard-lamps.local or http://%s (on your home Wi-Fi; username: admin)\n", WiFi.localIP().toString().c_str());
   }
-  if (!connected && wasConnected) { disconnectedSince = millis(); connectedSince = 0; }
+  if (!connected && wasConnected) {
+    disconnectedSince = millis(); connectedSince = 0;
+    if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
+  }
   if (!connected && !hotspot && millis() - disconnectedSince > 30000) startHotspot();
   if (connected && hotspot && millis() - connectedSince > 120000) {
     dns.stop(); WiFi.softAPdisconnect(true); WiFi.mode(WIFI_STA); hotspot = false;
@@ -193,7 +201,7 @@ void webTask(void*) {
     bool connected = WiFi.status() == WL_CONNECTED;
     String html = beginning() + "<div class='setup-shell'><div class='welcome'>" + brand() + "<section class='card'><span class='eyebrow'>Wi-Fi setup</span><h1>" + String(connected ? "You're connected." : "Finding your network…") + "</h1>";
     if (connected) {
-      html += "<p class='muted'>Your controller is connected to <strong>" + escape(config.ssid) + "</strong>. Rejoin your usual network and open this address:</p><p class='stat'><a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a></p><p class='muted'>Sign in with <strong>admin</strong> and your dashboard password. Save your temperature targets and schedule to finish setting up.</p><a class='button' href='/?view=settings'>Continue setup →</a>";
+      html += "<p class='muted'>Your controller is connected to <strong>" + escape(config.ssid) + "</strong>. Rejoin that Wi-Fi network on your phone or computer, then open <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a> in your browser.</p><p class='muted small'>If that name does not work, use this device IP address:</p><p class='stat'><a href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a></p><p class='muted'>Sign in with <strong>admin</strong> and your dashboard password. Save your temperature targets and schedule to finish setting up.</p><a class='button' href='http://" + WiFi.localIP().toString() + "/'>Open dashboard on home Wi-Fi →</a><p class='muted small gap'>Still on the setup hotspot? <a href='/?view=settings'>Continue setup here</a>. On the hotspot the dashboard is always at http://192.168.4.1.</p>";
     } else {
       html += "<p class='muted'>Connecting to <strong>" + escape(config.ssid) + "</strong>. This page updates automatically.</p><p class='small muted'>If this takes longer than 30 seconds, check the network name, password and 2.4GHz support.</p><a class='button' href='/?view=device'>Check Wi-Fi details</a>";
     }
@@ -251,7 +259,7 @@ void webTask(void*) {
     if (server.arg("confirmation") != "RESET") { render("Type RESET to confirm deletion.", 422, "device"); return; }
     xSemaphoreTake(stateMutex, portMAX_DELAY); resetRequested = true; maintenanceAcknowledged = false; xSemaphoreGive(stateMutex);
     rebootAt = millis() + 1000;
-    sendPage(beginning() + "<div class='setup-shell'><div class='card'><h1>Starting fresh.</h1><p>Heating is stopping. All saved data will be erased and the device will restart. Find the new hotspot password in Serial Monitor at 115200 baud.</p></div></div>" + ending());
+    sendPage(beginning() + "<div class='setup-shell'><div class='card'><h1>Starting fresh.</h1><p>Heating is stopping. All saved data will be erased and the device will restart. Join the open LizardLamps-XXXXXX hotspot (no password), then open http://192.168.4.1 in your browser.</p></div></div>" + ending());
   });
   server.onNotFound([] { server.sendHeader("Location", "http://" + String(hotspot ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "/"); server.send(302, "text/plain", "Open dashboard"); });
   server.begin();
@@ -273,20 +281,15 @@ void webTask(void*) {
 }
 } // namespace
 void startDeviceWeb() {
-  WiFi.mode(WIFI_STA); // Enable radio entropy before generating setup credentials.
+  WiFi.mode(WIFI_STA); // Enable radio entropy before generating the form token.
   uint64_t mac = ESP.getEfuseMac(); char suffix[7]; snprintf(suffix, sizeof(suffix), "%06X", static_cast<unsigned int>(mac & 0xFFFFFF));
   hotspotName = String("LizardLamps-") + suffix;
   Preferences prefs;
   if (!prefs.begin("lizard", false)) { Serial.println("Storage unavailable; web setup not started"); return; }
-  hotspotPassword = prefs.getString("apPassword", "");
-  if (hotspotPassword.length() < 12) {
-    char random[25]; snprintf(random, sizeof(random), "%08lx%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random(), (unsigned long)esp_random());
-    hotspotPassword = random;
-    if (!prefs.putString("apPassword", hotspotPassword)) { prefs.end(); Serial.println("Could not save hotspot password"); return; }
-  }
+  prefs.remove("apPassword"); // Remove the obsolete protected-hotspot setting on upgrade.
   prefs.end();
   char token[33]; snprintf(token, sizeof(token), "%08lx%08lx%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random(), (unsigned long)esp_random(), (unsigned long)esp_random()); csrf = token;
-  Serial.printf("Recovery hotspot: %s | Password: %s\n", hotspotName.c_str(), hotspotPassword.c_str());
+  Serial.printf("Setup/recovery: join %s (no password), open http://192.168.4.1\n", hotspotName.c_str());
   // HTTP/network waits run on core 0; loop() and dimmer ownership remain on core 1.
   if (xTaskCreatePinnedToCore(webTask, "device-web", 12288, nullptr, 1, nullptr, 0) != pdPASS)
     Serial.println("Web task could not start");

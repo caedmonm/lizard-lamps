@@ -6,7 +6,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 
 ## What it does
 
-- Password-protected Wi-Fi setup hotspot with a captive-portal DNS redirect.
+- Open Wi-Fi setup hotspot (no password) with a captive-portal DNS redirect.
 - Local dashboard showing **basking spot** and **ambient** temperatures, targets, selected lamp, requested power, connectivity and faults.
 - Two daily start times for switching between lamp 1 and lamp 2, including periods spanning midnight.
 - Independent basking and ambient targets, with proportional heating on the selected lamp.
@@ -21,16 +21,25 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 ## First-time setup
 
 1. Build and upload the firmware, with both DS18B20 probes connected.
-2. Open Serial Monitor at **115200 baud**. It prints the hotspot name (`LizardLamps-XXXXXX`) and its unique password. Keep this password for Wi-Fi recovery.
-3. Join that hotspot from a phone or computer. If the setup page does not open automatically, visit **http://192.168.4.1**. Stay connected if your phone warns that the hotspot has no internet.
+2. On your phone or computer, join the **LizardLamps-XXXXXX** Wi-Fi hotspot. **No hotspot password is needed.**
+3. Open a browser and visit **[http://192.168.4.1](http://192.168.4.1)**. The setup page may also open automatically. Stay connected if your phone warns that the hotspot has no internet.
 4. Enter the name and password of your **2.4GHz** Wi-Fi network and choose a dashboard password of 8–63 characters. Empty Wi-Fi passwords are supported for open networks.
 5. When prompted, sign in with username **admin** and your chosen dashboard password.
 6. Save the **basking spot** and **ambient** targets, then save the daily lamp schedule. Initial values are 19°C for each target, lamp 1 at 07:00 and lamp 2 at 19:00; they must be explicitly saved before heating can run.
-7. Read the assigned LAN IP from Serial Monitor or the dashboard banner/Device page. Rejoin your normal Wi-Fi and open that IP in a browser. The setup hotspot closes two minutes after a successful connection.
+7. Rejoin your normal Wi-Fi and visit **[http://lizard-lamps.local](http://lizard-lamps.local)**. If your network does not resolve that name, use the LAN IP shown on the connection success page, dashboard banner or Device page. Serial Monitor at 115200 baud also prints both addresses. The setup hotspot closes two minutes after a successful connection.
 
 Once targets and schedule are saved, the default page is the live overview, refreshed every 10 seconds. Other pages do not refresh while you edit forms. The interface works without downloading fonts, scripts or styles from the internet.
 
 Identify your physical probes by their readings and displayed OneWire addresses. Use **Targets → Swap probe labels** if the basking and ambient labels are reversed. Probe addresses are discovered once when exactly two probes are attached, then saved; a missing probe is never silently replaced. To bind replacement probes, factory reset, attach both new probes and restart.
+
+## Where to open the dashboard
+
+| Your phone/computer is connected to | Browser address |
+| --- | --- |
+| LizardLamps-XXXXXX setup/recovery hotspot | [http://192.168.4.1](http://192.168.4.1) |
+| Your normal home Wi-Fi | [http://lizard-lamps.local](http://lizard-lamps.local), or the device LAN IP shown after setup |
+
+192.168.4.1 is the hotspot address; the controller gets a separate address from your home router. After setup, sign in with username **admin** and your chosen dashboard password.
 
 ## Schedule and temperature control
 
@@ -56,11 +65,11 @@ DST behavior is based on the current wall-clock period: spring skips nonexistent
 
 ## Wi-Fi recovery and reset
 
-The device reconnects automatically. If disconnected for 30 seconds, it opens the same password-protected recovery hotspot. Saved control settings remain active when the clock and hardware are healthy. Visit 192.168.4.1 and sign in to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
+The device reconnects automatically. If disconnected for 30 seconds, it opens the same open recovery hotspot. Saved control settings remain active when the clock and hardware are healthy. Visit 192.168.4.1 and sign in to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
 
-**Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule, probe mapping and hotspot password, clears the ESP32 station credentials, and restarts. A new hotspot password is printed in Serial Monitor.
+**Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule and probe mapping, clears the ESP32 station credentials, and restarts. Join the open LizardLamps-XXXXXX hotspot and visit http://192.168.4.1 to start again.
 
-The dashboard uses HTTP Digest authentication and a per-boot form token. Wi-Fi and dashboard credentials are stored in device NVS; flash encryption is not configured by this project. It is intended for a trusted local network; do not expose its HTTP service directly to the internet.
+The setup hotspot is open and initial provisioning is accessible to nearby connected devices. After provisioning, the dashboard uses HTTP Digest authentication and a per-boot form token. Wi-Fi and dashboard credentials are stored in device NVS; flash encryption is not configured by this project. It is intended for a trusted local network; do not expose its HTTP service directly to the internet.
 
 ## Hardware
 
@@ -95,7 +104,7 @@ Clone into a folder named `lizard-lamps`. In Arduino IDE, open `lizard-lamps.ino
 | MycilaDimmer | 3.0.1 | [MycilaDimmer](https://github.com/mathieucarbou/MycilaDimmer) |
 | MycilaPulseAnalyzer | 3.0.10 | [MycilaPulseAnalyzer](https://github.com/mathieucarbou/MycilaPulseAnalyzer) |
 
-WiFi, WebServer, DNSServer and Preferences come with the ESP32 core. The task separation assumes the dual-core ESP32-WROOM-32; single-core variants are not supported by this configuration.
+WiFi, WebServer, DNSServer, ESPmDNS and Preferences come with the ESP32 core. The task separation assumes the dual-core ESP32-WROOM-32; single-core variants are not supported by this configuration.
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32 .

@@ -25,8 +25,8 @@ These pages contain simulated readings and are previews only. Form submissions r
 
 Record board/dimmer/lamp models, wiring arrangement, probe addresses, core/library versions and test conditions. Use suitable independent protection and qualified mains installation.
 
-- First boot: both outputs off, unique protected hotspot, setup works on desktop and mobile. Verify fallback at 192.168.4.1 if a captive browser does not open.
-- Correct/incorrect/open-network Wi-Fi credentials; connection status and assigned IP; hotspot closes after successful connection.
+- First boot: both outputs off, unique open hotspot requiring no password, setup works on desktop and mobile. Verify fallback at 192.168.4.1 if a captive browser does not open.
+- Correct/incorrect/open-network Wi-Fi credentials; connection status, lizard-lamps.local discovery and assigned IP fallback; hotspot closes after successful connection.
 - Dashboard sign-in, navigation and mobile layout; overview updates, editing pages do not discard changes.
 - Targets/schedule survive reboot; overview is the default after configuration.
 - Correct probe identity and label swapping; disconnect either probe and confirm output off; reconnect and verify recovery.
@@ -35,7 +35,7 @@ Record board/dimmer/lamp models, wiring arrangement, probe addresses, core/libra
 - London spring/autumn transitions follow documented wall-clock behavior.
 - Zero-cross loss, over-temperature readings, partial initialization and reset/startup output behavior.
 - Slow HTTP clients, repeated form requests, NVS writes and Wi-Fi reconnection do not interrupt healthy control or delay fault shutdown.
-- Factory reset physically commands outputs off, clears all saved application/station data and creates a fresh hotspot password.
+- Factory reset physically commands outputs off, clears all saved application/station data and reopens the password-free setup hotspot.
 - Independent cutout operation and behavior under a failed-short TRIAC are assessed independently of firmware.
 
 No physical hardware acceptance results are claimed by this repository yet.

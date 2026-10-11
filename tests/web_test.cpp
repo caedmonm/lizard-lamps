@@ -13,15 +13,19 @@ bool loadConfig(){return true;}
 int main(int argc, char** argv){
  const std::string outputDirectory = argc > 1 ? argv[1] : "/tmp";
  try{webTask(nullptr);}catch(const std::runtime_error&){}
+ assert(WiFi.openAP);
  csrf="test-token"; hotspot=false;
  render(); std::ofstream(outputDirectory + "/setup.html")<<server.body;
  assert(server.body.find("Choose a dashboard password")!=String::npos);
  server.args={{"csrf","wrong"}}; server.routes["/targets"](); assert(server.code==403);
  server.args={{"csrf",csrf},{"ssid","Enclosure Wi-Fi"},{"wifiPassword","password123"},{"adminPassword","dashboard123"}};
  server.routes["/wifi"](); assert(server.code==303 && String(deviceConfig.ssid)=="Enclosure Wi-Fi");
+ networkTick();assert(MDNS.started);
  server.routes["/connecting"]();assert(server.body.find("192.168.1.84")!=String::npos);
+ assert(server.body.find("http://lizard-lamps.local")!=String::npos);
+ assert(server.body.find("http://192.168.4.1")!=String::npos);
  std::ofstream(outputDirectory+"/connecting.html")<<server.body;
- WiFi.connected=false;server.routes["/connecting"]();assert(server.body.find("Check Wi-Fi details")!=String::npos);WiFi.connected=true;
+ WiFi.connected=false;networkTick();assert(!MDNS.started);server.routes["/connecting"]();assert(server.body.find("Check Wi-Fi details")!=String::npos);WiFi.connected=true;
  server.auth=false; server.routes["/"](); assert(server.code==401); server.auth=true;
  server.args={{"csrf",csrf},{"basking","nan"},{"ambient","25"}}; server.routes["/targets"](); assert(server.code==422 && !deviceConfig.targetsSet);
  server.args={{"csrf",csrf},{"basking","30"},{"ambient","24"}}; server.routes["/targets"](); assert(server.code==303 && deviceConfig.targetsSet);

@@ -111,7 +111,6 @@ void loop() {
                    Control::validTemperature(temperatures[1]);
     lastReading = millis();
     conversionPending = false;
-    Serial.printf("Basking %.2f C | Ambient %.2f C\n", temperatures[0], temperatures[1]);
   }
   if (!conversionPending && now - conversionStarted >= 1000) requestTemperatures();
   time_t epoch = time(nullptr);
