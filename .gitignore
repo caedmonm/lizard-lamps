@@ -1,0 +1,19 @@
+# Local build output
+build/
+.build/
+.pio/
+*.bin
+*.elf
+*.map
+*.hex
+
+# Local tools and operating system
+.DS_Store
+.vscode/
+.idea/
+
+# Private configuration (never commit credentials)
+.env
+.env.*
+secrets.h
+credentials.h
