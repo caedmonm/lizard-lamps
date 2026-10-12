@@ -19,15 +19,60 @@ inline int scheduledLamp(int minute, int lamp1Start, int lamp2Start) {
                                     : minute >= lamp1Start || minute < lamp2Start;
   return first ? 0 : 1;
 }
-inline int power(float basking, float ambient, float targetBasking, float targetAmbient) {
+inline bool validControlRange(float value) { return std::isfinite(value) && value >= 0.1f && value <= 10.0f; }
+inline int power(float basking, float ambient, float targetBasking, float targetAmbient, float range = FadeRange) {
   if (!validTemperature(basking) || !validTemperature(ambient) ||
-      !validTarget(targetBasking) || !validTarget(targetAmbient)) return 0;
+      !validTarget(targetBasking) || !validTarget(targetAmbient) || !validControlRange(range)) return 0;
   float deficit = std::fmax(targetBasking - basking, targetAmbient - ambient);
-  return std::lround(std::fmax(0.0f, std::fmin(1.0f, deficit / FadeRange)) * 100);
+  return std::lround(std::fmax(0.0f, std::fmin(1.0f, deficit / range)) * 100);
 }
 inline int periodPower(int selected, float basking, float ambient, const float targets[2][2]) {
   if (selected < 0 || selected > 1) return 0;
   return power(basking, ambient, targets[selected][0], targets[selected][1]);
+}
+// Stateful on/off demand: only the control loop owns this state.
+class HeatingController {
+  bool heating = false;
+  int previousPeriod = -1;
+  bool previousDimming = true;
+  float previousRange = NAN, previousDrop = NAN;
+  float previousTargets[2] = {NAN, NAN};
+public:
+  int update(bool enabled, int selected, float basking, float ambient,
+             const float targets[2][2], bool dimming, float range, float drop) {
+    if (!enabled || selected < 0 || selected > 1 ||
+        !validTemperature(basking) || !validTemperature(ambient) ||
+        !validControlRange(range) || !validControlRange(drop) ||
+        !validTarget(targets[selected][0]) || !validTarget(targets[selected][1])) {
+      heating = false;
+      previousPeriod = -1;
+      return 0;
+    }
+    if (selected != previousPeriod || dimming != previousDimming ||
+        range != previousRange || drop != previousDrop ||
+        targets[selected][0] != previousTargets[0] || targets[selected][1] != previousTargets[1])
+      heating = false;
+    previousPeriod = selected;
+    previousDimming = dimming;
+    previousRange = range;
+    previousDrop = drop;
+    previousTargets[0] = targets[selected][0];
+    previousTargets[1] = targets[selected][1];
+    if (dimming) {
+      heating = false;
+      return power(basking, ambient, targets[selected][0], targets[selected][1], range);
+    }
+    float deficit = std::fmax(targets[selected][0] - basking, targets[selected][1] - ambient);
+    if (deficit <= 0) heating = false;
+    else if (deficit >= drop) heating = true;
+    return heating ? 100 : 0;
+  }
+};
+inline bool parseControlRange(const char* text, float& value) {
+  if (!*text) return false;
+  char* end;
+  value = std::strtof(text, &end);
+  return *end == '\0' && validControlRange(value);
 }
 inline bool parseTime(const char* text, int& minute) {
   if (std::strlen(text) != 5 || text[2] != ':' || text[0] < '0' || text[0] > '2' ||

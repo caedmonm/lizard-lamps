@@ -46,6 +46,11 @@ const char WebClient[] PROGMEM = R"JS(
       e.setAttribute('aria-label','Daily lamp schedule: lamp 1 starts at '+c.starts[0]+', lamp 2 starts at '+c.starts[1]);
     });
   }
+  document.querySelectorAll('[data-dimming-toggle]').forEach(toggle=>{
+    const range=toggle.form.querySelector('[data-dimming-range]'),drop=toggle.form.querySelector('[data-restart-drop]');
+    const update=()=>{range.hidden=toggle.value!=='1';drop.hidden=toggle.value==='1';range.querySelector('input').disabled=range.hidden;drop.querySelector('input').disabled=drop.hidden};
+    toggle.addEventListener('change',update);update();
+  });
   document.querySelectorAll('[data-admin-toggle]').forEach(toggle=>{
     const form=toggle.form,password=form.querySelector('[data-admin-password]'),current=form.querySelector('[data-admin-current]');
     const update=()=>{password.disabled=!toggle.checked;password.required=toggle.checked&&current.value!=='1'};
@@ -66,7 +71,7 @@ const char WebClient[] PROGMEM = R"JS(
       if(data.next==='/connecting'){location.assign(data.next);return}
       if(data.resetting){message('Heating is stopping. The device will erase its data and restart. Join the open LizardLamps hotspot and visit http://192.168.4.1.');form.reset();return}
       message('Your changes have been saved.');
-      if(form.getAttribute('action')==='/schedule'||form.getAttribute('action')==='/probes')updateConfig(await request('/api/config'));
+      if(form.getAttribute('action')==='/schedule'||form.getAttribute('action')==='/probes'||form.getAttribute('action')==='/control')updateConfig(await request('/api/config'));
       if($('power-bar'))updateStatus(await request('/api/status'));
     }catch(error){message(error.name==='AbortError'?'The controller did not respond. Check your connection before retrying.':error.message,true)}
     finally{delete form.dataset.busy;buttons.forEach(b=>b.disabled=false)}

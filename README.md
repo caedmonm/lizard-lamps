@@ -9,8 +9,8 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 - Open Wi-Fi setup hotspot (no password) with a captive-portal DNS redirect.
 - Local dashboard showing **basking spot** and **ambient** temperatures, targets, selected lamp, requested power, connectivity and faults.
 - Two daily start times for switching between lamp 1 and lamp 2, including periods spanning midnight.
-- Independent day and night basking/ambient targets, with proportional heating on the selected lamp.
-- Persistent Wi-Fi details, dashboard password, targets, schedule and fixed probe addresses.
+- Independent day and night basking/ambient targets, with adjustable dimming or full-on/full-off heating on the selected lamp.
+- Persistent Wi-Fi details, dashboard password, targets, schedule, heating control settings and fixed probe addresses.
 - Probe label swapping, Wi-Fi recovery after disconnection and a confirmed factory reset.
 - Europe/London clock with daylight saving, NTP synchronization and browser-time fallback.
 
@@ -30,7 +30,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 
 Once the combined schedule and targets are saved, the default page is the live overview. It polls the status API approximately every 2 seconds and updates readings, targets, selected lamp, power and faults in place. Wi-Fi connection progress also updates through AJAX. Settings forms save through AJAX with inline confirmation/errors; editing does not reload the page. The interface works without downloading fonts, scripts or styles from the internet.
 
-Identify your physical probes by their readings and displayed OneWire addresses. Use **Probes → Swap probe labels** if the basking and ambient labels are reversed. Probe addresses are discovered once when exactly two probes are attached, then saved; a missing probe is never silently replaced. To bind replacement probes, factory reset, attach both new probes and restart.
+Identify your physical probes by their readings and displayed OneWire addresses. Use **Settings → Swap probe labels** if the basking and ambient labels are reversed. Probe addresses are discovered once when exactly two probes are attached, then saved; a missing probe is never silently replaced. To bind replacement probes, factory reset, attach both new probes and restart.
 
 ## Where to open the dashboard
 
@@ -52,10 +52,17 @@ Both probes influence the selected lamp:
 ```text
 largest deficit = max(active period basking target - basking temperature,
                       active period ambient target - ambient temperature)
-requested power = clamp(largest deficit / 3°C, 0, 1) × 100%
+with dimming on:
+requested power = clamp(largest deficit / dimming range, 0, 1) × 100%
 ```
 
-The sketch rounds to a whole percentage and enables Mycila's power lookup table. A 2°C greatest deficit requests approximately 67% power. Requested power is not measured electrical wattage.
+Open **Settings → Heating control** to turn dimming on or off. With dimming on (the default), set the **Dimming range**: the lamp receives full power when the greatest deficit reaches this range and progressively dims as the targets approach. The default range is 3°C.
+
+With dimming off, the selected lamp receives either 100% or 0%. It stays on until **both** probes reach their respective targets, then stays off until **either** probe falls by the **Restart temperature drop** below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C. The default drop is 2°C. Both ranges accept 0.1–10°C and apply to both day and night. Each mode retains its own range when switching modes.
+
+On startup, after a fault or settings save, and when the active period or its targets change, on/off control starts from off and waits for the restart threshold. Existing sensor, clock and zero-cross safeguards apply in both modes.
+
+The sketch rounds to a whole percentage and enables Mycila's power lookup table. With dimming on and the default 3°C range, a 2°C greatest deficit requests approximately 67% power. Requested power is not measured electrical wattage.
 
 Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
 
@@ -65,7 +72,7 @@ DST behavior is based on the current wall-clock period: spring skips nonexistent
 
 ## Upgrading existing devices
 
-Saved settings from the original two-target firmware are migrated automatically. Existing Wi-Fi credentials, dashboard password, switch times and probe mappings are preserved. The previous basking and ambient targets are copied into **both** day and night so upgrading does not unexpectedly change heating behavior. Edit **Schedule & temps** to choose different temperatures for each period. Incomplete previous setup stays disabled until the combined form is saved.
+Saved settings from both earlier configuration versions are migrated automatically. Upgrades retain dimming on with its previous 3°C range; the new restart drop defaults to 2°C. Existing Wi-Fi credentials, dashboard password, switch times and probe mappings are preserved. The previous basking and ambient targets are copied into **both** day and night so upgrading does not unexpectedly change heating behavior. Edit **Schedule & temps** to choose different temperatures for each period. Incomplete previous setup stays disabled until the combined form is saved.
 
 ## Wi-Fi recovery and reset
 
@@ -136,12 +143,13 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | GET | `/api/config` | Day/night start times, targets, probe identities and protection state |
 | POST | `/api/schedule` | Save both periods and all four targets together |
 | POST | `/api/wifi` | Save Wi-Fi details and initial dashboard protection choice |
+| POST | `/api/control` | Save dimming mode, dimming range and restart temperature drop |
 | POST | `/api/admin` | Enable, disable or change dashboard password protection |
 | POST | `/api/clock` | Supply browser-time fallback |
 | POST | `/api/probes` | Swap basking/ambient probe identities |
 | POST | `/api/reset` | Confirm factory reset |
 
-Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
+Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (on) or `0` (off), plus `dimmingRange` when on or `restartDrop` when off, in °C. The inactive range may be omitted to preserve its saved value. `/api/config` returns these three settings. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
 
 Missing/disconnected readings are JSON `null`. The client shows a connection-loss notice when polling fails, avoids overlapping polls, backs off on failures and pauses network requests while the tab is hidden. After Wi-Fi setup, navigation to the connection page is intentional; there are no automatic full-page refreshes.
 

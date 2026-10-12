@@ -20,6 +20,7 @@ bool conversionPending = false;
 float temperatures[2] = {NAN, NAN};
 unsigned long lastReading = 0;
 bool sensorReadOK = false;
+Control::HeatingController heatingController;
 int previousLamp = -1;
 unsigned long lampChangedAt = 0;
 uint8_t readingProbes[2][8] = {};
@@ -125,7 +126,8 @@ void loop() {
   bool stopped = maintenance || resetRequested;
   xSemaphoreGive(stateMutex);
   bool enabled = config.targetsSet && config.scheduleSet && selected >= 0 && clockValid && healthy && online && !stopped;
-  int power = enabled ? Control::periodPower(selected, temperatures[0], temperatures[1], config.targets) : 0;
+  int power = heatingController.update(enabled, selected, temperatures[0], temperatures[1],
+                                       config.targets, config.dimmingEnabled, config.dimmingRange, config.restartDrop);
   power = applyPower(selected, power);
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   deviceStatus.temperatures[0] = temperatures[0];

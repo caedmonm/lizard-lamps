@@ -29,6 +29,11 @@ bool loadConfig() {
   bool migrated = false, found = false;
   if (length == sizeof(candidate)) {
     found = prefs.getBytes("config", &candidate, sizeof(candidate)) == sizeof(candidate);
+  } else if (length == sizeof(LegacyDeviceConfigV2)) {
+    LegacyDeviceConfigV2 old;
+    found = prefs.getBytes("config", &old, sizeof(old)) == sizeof(old);
+    candidate = migrateLegacyConfig(old);
+    migrated = true;
   } else if (length == sizeof(LegacyDeviceConfigV1)) {
     LegacyDeviceConfigV1 old;
     found = prefs.getBytes("config", &old, sizeof(old)) == sizeof(old);

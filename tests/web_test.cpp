@@ -44,6 +44,26 @@ int main(int argc, char** argv){
  saveSucceeds=true;scheduleArgs();server.routes["/schedule"]();assert(server.code==303&&deviceConfig.scheduleSet&&deviceConfig.targetsSet);
  assert(deviceConfig.targets[0][0]==30&&deviceConfig.targets[0][1]==24&&deviceConfig.targets[1][0]==20&&deviceConfig.targets[1][1]==18);
  assert(server.routes.count("/targets")==0);
+ auto controlArgs = [&] { server.args={{"csrf",csrf},{"dimmingEnabled","0"},{"dimmingRange","4"},{"restartDrop","2"}}; };
+ server.auth=false;controlArgs();server.routes["/api/control"]();assert(server.code==401&&deviceConfig.dimmingEnabled);server.auth=true;
+ controlArgs();server.args["csrf"]="wrong";server.routes["/api/control"]();assert(server.code==403&&deviceConfig.dimmingEnabled);
+ for(const char* field:{"dimmingEnabled","restartDrop"}){
+   controlArgs();server.args.erase(field);server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
+ }
+ for(const char* bad:{"nan","inf","0","-2","10.1","2junk"}){
+   controlArgs();server.args["restartDrop"]=bad;server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
+   controlArgs();server.args["dimmingRange"]=bad;server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
+ }
+ controlArgs();server.args["dimmingEnabled"]="1";server.args.erase("dimmingRange");server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
+ controlArgs();server.args["dimmingEnabled"]="yes";server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
+ saveSucceeds=false;controlArgs();server.routes["/api/control"]();assert(server.code==500&&deviceConfig.dimmingEnabled);saveSucceeds=true;
+ controlArgs();server.routes["/api/control"]();assert(server.code==200&&!deviceConfig.dimmingEnabled&&deviceConfig.dimmingRange==4&&deviceConfig.restartDrop==2);
+ controlArgs();server.args.erase("dimmingRange");server.args["restartDrop"]="1.5";server.routes["/api/control"]();assert(server.code==200&&deviceConfig.dimmingRange==4&&deviceConfig.restartDrop==1.5f);
+ controlArgs();server.routes["/api/control"]();assert(server.code==200&&deviceConfig.restartDrop==2);
+ assert(deviceConfig.targets[0][0]==30&&deviceConfig.starts[0]==420);
+ server.args={{"view","settings"}};render();assert(server.body.find("Restart temperature drop")!=String::npos&&server.body.find("value='0' selected")!=String::npos);
+ controlArgs();server.args["dimmingEnabled"]="1";server.routes["/control"]();assert(server.code==303&&deviceConfig.dimmingEnabled);
+ server.routes["/api/config"]();assert(server.body.find("\"dimmingEnabled\":true")!=String::npos&&server.body.find("\"dimmingRange\":4.0")!=String::npos&&server.body.find("\"restartDrop\":2.0")!=String::npos);
  deviceStatus.temperatures[0]=29.4f;deviceStatus.temperatures[1]=23.1f;
  deviceStatus.sensorsHealthy=true;deviceStatus.dimmerOnline=true;deviceStatus.clockValid=true;deviceStatus.power=30;deviceStatus.activeLamp=0;deviceStatus.targets[0]=30;deviceStatus.targets[1]=24;
  deviceConfig.probesSet=true;

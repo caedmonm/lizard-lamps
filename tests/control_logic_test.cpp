@@ -48,6 +48,48 @@ int main() {
   assert(periodPower(scheduledLamp(1140, 420, 1140), 28, 24, dayNightTargets) == 0);
   assert(periodPower(1, 18, 17, dayNightTargets) == 67);
   assert(periodPower(-1, 18, 17, dayNightTargets) == 0);
+  assert(power(28, 25, 30, 25, 4) == 50);
+  assert(power(28, 25, 30, 25, 2) == 100);
+  assert(power(28, 25, 30, 25, 0) == 0);
+  HeatingController controller;
+  auto demand = [&](float basking, float ambient, bool enabled = true, int period = 0,
+                    bool dimming = false, float range = 3, float drop = 2) {
+    return controller.update(enabled, period, basking, ambient, dayNightTargets, dimming, range, drop);
+  };
+  // Startup waits for the restart threshold, then retains full output through the band.
+  assert(demand(29, 25) == 0);
+  assert(demand(28, 25) == 100);
+  assert(demand(29.9f, 25) == 100);
+  assert(demand(30, 24) == 100); // Ambient still requests heat.
+  assert(demand(30, 25) == 0);
+  assert(demand(29, 24) == 0);
+  assert(demand(30, 23) == 100); // Either probe can restart heating.
+  assert(demand(31, 26) == 0);
+  assert(demand(28, 25) == 100);
+  assert(demand(45, 25) == 0);
+  assert(demand(29, 25) == 0); // Fault clears the previous on state.
+  assert(demand(28, 25) == 100);
+  assert(demand(29, 25, false) == 0);
+  assert(demand(29, 25) == 0);
+  assert(demand(28, 25) == 100);
+  assert(demand(19, 18, true, 1) == 0); // New period starts from off.
+  assert(demand(18, 18, true, 1) == 100);
+  assert(demand(19.5f, 18, true, 1) == 100);
+  assert(demand(19.5f, 18, true, 1, false, 3, 1) == 0); // Settings clear the latch.
+  assert(demand(19, 18, true, 1, false, 3, 1) == 100);
+  dayNightTargets[1][0] = 19.5f;
+  assert(demand(19, 18, true, 1, false, 3, 1) == 0); // Target edits clear it too.
+  assert(demand(28, 25, true, 0, true, 4) == 50);
+  assert(demand(29, 25) == 0); // Returning to on/off does not inherit dimming demand.
+  assert(demand(28, 25) == 100);
+  assert(demand(28, NAN) == 0);
+  assert(demand(28, 25, true, -1) == 0);
+  assert(demand(28, 25, true, 0, false, NAN) == 0);
+  float controlRange;
+  assert(parseControlRange("0.1", controlRange) && controlRange == 0.1f);
+  assert(parseControlRange("10", controlRange) && controlRange == 10);
+  for (const char* invalid : {"", "nan", "inf", "0", "-2", "10.1", "2junk"})
+    assert(!parseControlRange(invalid, controlRange));
   int minute;
   assert(parseTime("00:00", minute) && minute == 0);
   assert(parseTime("23:59", minute) && minute == 1439);

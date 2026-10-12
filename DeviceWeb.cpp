@@ -154,7 +154,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
   if (view != "settings" && view != "schedule" && view != "device") view = c.targetsSet && c.scheduleSet ? "monitor" : "schedule";
   h += "<div class='shell'><aside>" + brand() + "<div><div class='tag'>Your habitat</div><nav class='nav' aria-label='Main navigation'>";
   const char* views[] = {"monitor", "schedule", "settings", "device"};
-  const char* labels[] = {"Overview", "Schedule & temps", "Probes", "Device"};
+  const char* labels[] = {"Overview", "Schedule & temps", "Settings", "Device"};
   for (int i = 0; i < 4; ++i) h += "<a class='" + String(view == views[i] ? "active" : "") + "' href='/?view=" + views[i] + "'>" + labels[i] + "</a>";
   h += "</nav></div><div class='sidefoot'><span class='dot'></span>On-device control<br>Europe/London · 50Hz</div></aside><main><div id='live-message' class='notice' role='status' hidden></div>";
   if (error.length()) h += "<div class='notice error' role='alert'>" + escape(error) + "</div>";
@@ -164,7 +164,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     else h += "<div class='notice'>Setup hotspot is active. Waiting to connect to <strong>" + escape(c.ssid) + "</strong>. Check your Wi-Fi details on the <a href='/?view=device'>Device page</a> if connection fails.</div>";
   }
   if (!c.targetsSet || !c.scheduleSet) h += "<div id='setup-notice' class='notice'>Finish setup: save your <a href='/?view=schedule'>day and night schedule with temperature targets</a>. Heating stays off until the schedule is saved and the clock is ready.</div>";
-  const char* title = view == "monitor" ? "Your habitat, at a glance." : view == "schedule" ? "A rhythm for every day." : view == "settings" ? "Know your probes." : "Make it yours.";
+  const char* title = view == "monitor" ? "Your habitat, at a glance." : view == "schedule" ? "A rhythm for every day." : view == "settings" ? "Fine-tune your heating." : "Make it yours.";
   h += "<header class='head'><div><span class='eyebrow'>" + String(view == "monitor" ? "Live conditions" : "Controller settings") + "</span><h1>" + title + "</h1><span class='muted' id='controller-clock'>" + clockText() + "</span></div><span class='pill' id='connectivity'>" + String(WiFi.status() == WL_CONNECTED ? "● Wi-Fi connected" : "○ Wi-Fi offline") + "</span></header>";
   if (view == "monitor") {
     String fault = !s.sensorsHealthy ? "check both temperature probes and temperature limits." : !s.dimmerOnline ? "zero-cross detection is unavailable." : !s.clockValid ? "waiting for a valid clock." : "";
@@ -188,6 +188,10 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     }
     h += "<p class='muted small'>Start times must differ. Day/lamp 1 runs until night/lamp 2 begins, then night runs until day begins again. Each period uses its own targets. Allowed targets: 5–40°C; heating pauses if either probe reaches 45°C.</p><button>Save schedule & temperatures</button></form>";
   } else if (view == "settings") {
+    h += "<section class='card'><h2>Heating control</h2><p class='muted'>Choose gradual dimming or full-on/full-off heating. These settings apply to both lamps.</p>" + formStart("/control");
+    h += "<label for='dimmingEnabled'>Dimming</label><select id='dimmingEnabled' name='dimmingEnabled' data-dimming-toggle><option value='1'" + String(c.dimmingEnabled ? " selected" : "") + ">On</option><option value='0'" + String(!c.dimmingEnabled ? " selected" : "") + ">Off</option></select>";
+    h += "<div data-dimming-range><label for='dimmingRange'>Dimming range · °C</label><input type='number' id='dimmingRange' name='dimmingRange' step='0.1' min='0.1' max='10' required value='" + String(c.dimmingRange, 1) + "'><p class='muted small'>With dimming on, power falls from 100% to off over this many degrees below the targets.</p></div>";
+    h += "<div data-restart-drop><label for='restartDrop'>Restart temperature drop · °C</label><input type='number' id='restartDrop' name='restartDrop' step='0.1' min='0.1' max='10' required value='" + String(c.restartDrop, 1) + "'><p class='muted small'>With dimming off, the lamp runs at 100% until both probes reach their targets. It stays off until either probe drops this far below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C.</p></div><button>Save heating control</button></form></section>";
     h += "<section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code data-probe='0'>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code data-probe='1'>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Day and night targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
   } else {
     h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Dashboard access</h2>" + formStart("/admin") + "<input type='hidden' data-admin-current value='" + String(c.adminPassword[0] ? "1" : "0") + "'>" + adminFields(false, c) + "<button>Save password protection</button></form></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule and probe mappings. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
@@ -253,7 +257,8 @@ void apiConfig() {
   sendJson("{\"starts\":[" + jsonString(timeText(config.starts[0])) + "," + jsonString(timeText(config.starts[1])) +
            "],\"targets\":[[" + jsonNumber(config.targets[0][0]) + "," + jsonNumber(config.targets[0][1]) +
            "],[" + jsonNumber(config.targets[1][0]) + "," + jsonNumber(config.targets[1][1]) +
-           "]],\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) + ",\"adminProtected\":" + jsonBool(config.adminPassword[0]) + ",\"probes\":[" +
+           "]],\"dimmingEnabled\":" + jsonBool(config.dimmingEnabled) + ",\"dimmingRange\":" + jsonNumber(config.dimmingRange) +
+           ",\"restartDrop\":" + jsonNumber(config.restartDrop) + ",\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) + ",\"adminProtected\":" + jsonBool(config.adminPassword[0]) + ",\"probes\":[" +
            (config.probesSet ? jsonString(address(config.probes[0])) : String("null")) + "," +
            (config.probesSet ? jsonString(address(config.probes[1])) : String("null")) + "]}");
 }
@@ -329,6 +334,22 @@ void webTask(void*) {
     candidate.scheduleSet = candidate.targetsSet = true;
     if (!saveConfig(candidate)) { render("Could not save schedule and temperatures.", 500, "schedule"); return; }
     bootstrapClock(); redirect("/?view=monitor&saved=1");
+  });
+  registerForm("/control", [] {
+    if (!validPost()) return;
+    DeviceConfig candidate = configSnapshot();
+    if (!candidate.ssid[0]) { render("Connect to Wi-Fi first.", 422, "settings"); return; }
+    String mode = server.arg("dimmingEnabled");
+    if ((mode != "0" && mode != "1") ||
+        (mode == "1" && !server.hasArg("dimmingRange")) ||
+        (mode == "0" && !server.hasArg("restartDrop")) ||
+        (server.hasArg("dimmingRange") && !Control::parseControlRange(server.arg("dimmingRange").c_str(), candidate.dimmingRange)) ||
+        (server.hasArg("restartDrop") && !Control::parseControlRange(server.arg("restartDrop").c_str(), candidate.restartDrop))) {
+      render("Choose dimming on or off and temperature ranges between 0.1°C and 10°C.", 422, "settings"); return;
+    }
+    candidate.dimmingEnabled = mode == "1";
+    if (!saveConfig(candidate)) { render("Could not save heating control.", 500, "settings"); return; }
+    bootstrapClock(); redirect("/?view=settings&saved=1");
   });
   registerForm("/clock", [] {
     if (!validPost()) return;
