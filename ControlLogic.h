@@ -72,7 +72,7 @@ public:
 // Time-based output smoothing; faults bypass fading and clear all transition state.
 struct LampOutput { int lamp; int percent; };
 class LampFader {
-  static constexpr uint32_t DurationMs = 10000;
+  static constexpr uint32_t DurationMs = 60000;
   static constexpr uint32_t SettleMs = 20;
   int lamp = -1, target = 0;
   float current = 0, start = 0;
