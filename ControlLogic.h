@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
@@ -66,6 +67,50 @@ public:
     if (deficit <= 0) heating = false;
     else if (deficit >= drop) heating = true;
     return heating ? 100 : 0;
+  }
+};
+// Time-based output smoothing; faults bypass fading and clear all transition state.
+struct LampOutput { int lamp; int percent; };
+class LampFader {
+  static constexpr uint32_t DurationMs = 10000;
+  static constexpr uint32_t SettleMs = 20;
+  int lamp = -1, target = 0;
+  float current = 0, start = 0;
+  uint32_t startedAt = 0, offAt = 0;
+  bool settling = false;
+
+  void advance(uint32_t now) {
+    uint32_t elapsed = now - startedAt;
+    current = elapsed >= DurationMs ? target : start + (target - start) * (elapsed / float(DurationMs));
+  }
+  void aim(int demand, uint32_t now) {
+    if (target == demand) return; // Repeated loop updates must not restart the fade.
+    start = current;
+    target = demand;
+    startedAt = now;
+  }
+public:
+  LampOutput update(bool enabled, int selected, int demand, uint32_t now) {
+    if (!enabled || selected < 0 || selected > 1 || demand < 0 || demand > 100) {
+      lamp = -1;
+      current = start = 0;
+      target = 0;
+      settling = false;
+      return {-1, 0};
+    }
+    advance(now);
+    if (lamp != selected) {
+      aim(0, now);
+      if (current > 0) return {lamp, int(std::lround(current))};
+      if (!settling) { settling = true; offAt = now; }
+      if (uint32_t(now - offAt) < SettleMs) return {-1, 0};
+      lamp = selected;
+      settling = false;
+    } else {
+      settling = false; // A schedule reversal can resume the outgoing lamp.
+    }
+    aim(demand, now);
+    return {lamp, int(std::lround(current))};
   }
 };
 inline bool parseControlRange(const char* text, float& value) {

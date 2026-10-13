@@ -14,12 +14,16 @@ int main(int argc, char** argv){
  const std::string outputDirectory = argc > 1 ? argv[1] : "/tmp";
  try{webTask(nullptr);}catch(const std::runtime_error&){}
  assert(WiFi.openAP);
+ server.auth=false;server.routes["/favicon.svg"]();
+ assert(server.code==200&&server.contentType=="image/svg+xml"&&server.body.find("<svg")!=String::npos);
+ server.auth=true;
  csrf="test-token"; hotspot=false;
  server.routes["/api/status"]();assert(server.body.find("null")!=String::npos);assert(server.contentType.find("application/json")!=String::npos);
  std::ofstream(outputDirectory+"/status-empty.json")<<server.body;
 
  render(); std::ofstream(outputDirectory + "/setup.html")<<server.body;
  assert(server.body.find("Choose a dashboard password")!=String::npos);
+ assert(server.body.find("href='/favicon.svg'")!=String::npos);
  server.args={{"csrf","wrong"}}; server.routes["/schedule"](); assert(server.code==403);
  server.args={{"csrf",csrf},{"ssid","Enclosure Wi-Fi"},{"protectAdmin","1"}};
  server.routes["/api/wifi"]();assert(server.code==422&&!deviceConfig.ssid[0]);

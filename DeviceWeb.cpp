@@ -1,6 +1,7 @@
 #include "DeviceState.h"
 #include "ControlLogic.h"
 #include "WebStyle.h"
+#include "WebIcon.h"
 #include "WebClient.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
@@ -100,7 +101,7 @@ void sendPage(String html, int code = 200) {
 }
 String beginning() {
   String html; html.reserve(16000);
-  html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Lizard Lamps</title>";
+  html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Lizard Lamps</title><link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
   html += FPSTR(WebStyle); html += "</head><body>"; return html;
 }
 String ending() { return String(FPSTR(WebClient)) + "</body></html>"; }
@@ -188,7 +189,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     }
     h += "<p class='muted small'>Start times must differ. Day/lamp 1 runs until night/lamp 2 begins, then night runs until day begins again. Each period uses its own targets. Allowed targets: 5–40°C; heating pauses if either probe reaches 45°C.</p><button>Save schedule & temperatures</button></form>";
   } else if (view == "settings") {
-    h += "<section class='card'><h2>Heating control</h2><p class='muted'>Choose gradual dimming or full-on/full-off heating. These settings apply to both lamps.</p>" + formStart("/control");
+    h += "<section class='card'><h2>Heating control</h2><p class='muted'>Choose gradual dimming or full-on/full-off heating. These settings apply to both lamps. Power changes fade over 10 seconds.</p>" + formStart("/control");
     h += "<label for='dimmingEnabled'>Dimming</label><select id='dimmingEnabled' name='dimmingEnabled' data-dimming-toggle><option value='1'" + String(c.dimmingEnabled ? " selected" : "") + ">On</option><option value='0'" + String(!c.dimmingEnabled ? " selected" : "") + ">Off</option></select>";
     h += "<div data-dimming-range><label for='dimmingRange'>Dimming range · °C</label><input type='number' id='dimmingRange' name='dimmingRange' step='0.1' min='0.1' max='10' required value='" + String(c.dimmingRange, 1) + "'><p class='muted small'>With dimming on, power falls from 100% to off over this many degrees below the targets.</p></div>";
     h += "<div data-restart-drop><label for='restartDrop'>Restart temperature drop · °C</label><input type='number' id='restartDrop' name='restartDrop' step='0.1' min='0.1' max='10' required value='" + String(c.restartDrop, 1) + "'><p class='muted small'>With dimming off, the lamp runs at 100% until both probes reach their targets. It stays off until either probe drops this far below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C.</p></div><button>Save heating control</button></form></section>";
@@ -271,6 +272,11 @@ void webTask(void*) {
   DeviceConfig c = configSnapshot();
   if (!c.ssid[0]) startHotspot();
   connectNetwork();
+  server.on("/favicon.svg", HTTP_GET, [] {
+    server.sendHeader("Cache-Control", "public, max-age=86400");
+    server.sendHeader("X-Content-Type-Options", "nosniff");
+    server.send(200, "image/svg+xml", FPSTR(WebIcon));
+  });
   server.on("/api/status", HTTP_GET, apiStatus);
   server.on("/api/connection", HTTP_GET, apiConnection);
   server.on("/api/config", HTTP_GET, apiConfig);

@@ -21,8 +21,7 @@ float temperatures[2] = {NAN, NAN};
 unsigned long lastReading = 0;
 bool sensorReadOK = false;
 Control::HeatingController heatingController;
-int previousLamp = -1;
-unsigned long lampChangedAt = 0;
+Control::LampFader lampFader;
 uint8_t readingProbes[2][8] = {};
 
 void requestTemperatures() {
@@ -32,19 +31,6 @@ void requestTemperatures() {
 }
 int applyPower(int selected, int percent) {
   if (!dimmerReady) return 0;
-  // Break before make: both channels are off before changing selected lamps.
-  if (selected != previousLamp) {
-    lamp1.setDutyCycle(0);
-    lamp2.setDutyCycle(0);
-    previousLamp = selected;
-    lampChangedAt = millis();
-  }
-  // Allow a full 50Hz cycle for the previous TRIAC to stop conducting.
-  if (millis() - lampChangedAt < 20) {
-    lamp1.setDutyCycle(0);
-    lamp2.setDutyCycle(0);
-    return 0;
-  }
   // Always write the inactive output first, including reverse transitions.
   if (selected == 0) {
     lamp2.setDutyCycle(0);
@@ -128,17 +114,19 @@ void loop() {
   bool enabled = config.targetsSet && config.scheduleSet && selected >= 0 && clockValid && healthy && online && !stopped;
   int power = heatingController.update(enabled, selected, temperatures[0], temperatures[1],
                                        config.targets, config.dimmingEnabled, config.dimmingRange, config.restartDrop);
-  power = applyPower(selected, power);
+  Control::LampOutput output = lampFader.update(enabled, selected, power, millis());
+  power = applyPower(output.lamp, output.percent);
+  int activeLamp = output.lamp >= 0 ? output.lamp : selected;
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   deviceStatus.temperatures[0] = temperatures[0];
   deviceStatus.temperatures[1] = temperatures[1];
   deviceStatus.sensorsHealthy = healthy;
   deviceStatus.dimmerOnline = online;
   deviceStatus.clockValid = clockValid;
-  deviceStatus.activeLamp = selected;
+  deviceStatus.activeLamp = activeLamp;
   deviceStatus.power = power;
   for (int probe = 0; probe < 2; ++probe)
-    deviceStatus.targets[probe] = selected >= 0 ? config.targets[selected][probe] : NAN;
+    deviceStatus.targets[probe] = activeLamp >= 0 ? config.targets[activeLamp][probe] : NAN;
   if (stopped && power == 0) maintenanceAcknowledged = true;
   deviceStatus.lastReading = lastReading;
   xSemaphoreGive(stateMutex);

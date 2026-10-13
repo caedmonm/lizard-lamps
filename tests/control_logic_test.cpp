@@ -85,6 +85,60 @@ int main() {
   assert(demand(28, NAN) == 0);
   assert(demand(28, 25, true, -1) == 0);
   assert(demand(28, 25, true, 0, false, NAN) == 0);
+  LampFader fader;
+  auto fade = [&](int selected, int demand, uint32_t now, bool enabled = true) {
+    return fader.update(enabled, selected, demand, now);
+  };
+  assert(fade(0, 100, 0).percent == 0);
+  assert(fade(0, 100, 19).lamp == -1);
+  assert(fade(0, 100, 20).percent == 0);
+  assert(fade(0, 100, 5020).percent == 50);
+  assert(fade(0, 100, 10020).percent == 100);
+  assert(fade(0, 0, 10020).percent == 100);
+  assert(fade(0, 0, 15020).percent == 50);
+  assert(fade(0, 0, 20020).percent == 0);
+  // Partial demand also takes ten seconds; frequent calls retain the deadline.
+  fade(0, 40, 20020);
+  for (uint32_t now = 20020; now < 30020; now += 2) fade(0, 40, now);
+  assert(fade(0, 40, 30020).percent == 40);
+  // Day/night changes fade the old output out, settle, then fade the new one in.
+  assert(fade(1, 80, 30020).lamp == 0);
+  auto outgoing = fade(1, 80, 35020);
+  assert(outgoing.lamp == 0 && outgoing.percent == 20);
+  assert(fade(1, 80, 40020).lamp == -1);
+  assert(fade(1, 80, 40039).lamp == -1);
+  auto incoming = fade(1, 80, 40040);
+  assert(incoming.lamp == 1 && incoming.percent == 0);
+  assert(fade(1, 80, 45040).percent == 40);
+  assert(fade(1, 80, 50040).percent == 80);
+  // Reverse switch also keeps the outgoing channel exclusive until it is off.
+  LampFader reverse;
+  reverse.update(true, 1, 100, 0);
+  reverse.update(true, 1, 100, 20);
+  assert(reverse.update(true, 1, 100, 10020).percent == 100);
+  reverse.update(true, 0, 60, 10020);
+  auto reverseOutgoing = reverse.update(true, 0, 60, 15020);
+  assert(reverseOutgoing.lamp == 1 && reverseOutgoing.percent == 50);
+  assert(reverse.update(true, 0, 60, 20020).lamp == -1);
+  reverse.update(true, 0, 60, 20040);
+  auto reverseIncoming = reverse.update(true, 0, 60, 30040);
+  assert(reverseIncoming.lamp == 0 && reverseIncoming.percent == 60);
+  // A reversal resumes smoothly from the current output without switching lamps.
+  fade(0, 100, 50040);
+  assert(fade(0, 100, 55040).percent == 40);
+  assert(fade(1, 80, 55040).percent == 40);
+  assert(fade(1, 80, 60040).percent == 60);
+  // Faults, maintenance and invalid selection stop immediately and clear the fade.
+  assert(fade(1, 80, 60040, false).percent == 0);
+  assert(fade(1, 80, 60041).percent == 0);
+  assert(fade(-1, 80, 60042).lamp == -1);
+  assert(fade(1, 101, 60043).percent == 0);
+  // Millisecond rollover during both the settling gap and a ramp.
+  LampFader rollover;
+  rollover.update(true, 0, 100, UINT32_MAX - 10);
+  assert(rollover.update(true, 0, 100, 9).percent == 0);
+  assert(rollover.update(true, 0, 100, 5009).percent == 50);
+  assert(rollover.update(true, 0, 100, 10009).percent == 100);
   float controlRange;
   assert(parseControlRange("0.1", controlRange) && controlRange == 0.1f);
   assert(parseControlRange("10", controlRange) && controlRange == 10);

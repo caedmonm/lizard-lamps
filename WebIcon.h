@@ -1,0 +1,3 @@
+#pragma once
+// Small, self-contained icon matching the dashboard's warm lamp branding.
+const char WebIcon[] PROGMEM = R"SVG(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#193e35"/><g fill="none" stroke="#f6c875" stroke-width="3.5" stroke-linecap="round"><path d="M32 8v5M14 16l4 4M8 32h6M50 32h6M50 16l-4 4"/><path d="M23 40a15 15 0 1 1 18 0v7H23z" fill="#f6c875" stroke-linejoin="round"/></g><path d="M26 51h12M28 56h8" stroke="#fff4db" stroke-width="3" stroke-linecap="round"/><path d="M27 34l5 5 5-5" fill="none" stroke="#193e35" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>)SVG";

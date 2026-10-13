@@ -16,7 +16,7 @@ Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current r
 - Disconnected, non-finite, below -20°C, or at/above 45°C readings disable heating.
 - A last-reading timeout of 3 seconds disables heating when the loop can evaluate it.
 - Invalid configuration and unavailable zero-cross detection request zero output.
-- Lamp switching commands both outputs off and waits 20ms before enabling the new selected lamp.
+- Normal power changes fade over 10 seconds. Lamp switching fades the outgoing lamp to off, waits 20ms with both outputs off, then fades the incoming lamp up over 10 seconds. Faults and maintenance bypass fades and command immediate off.
 - Configuration writes wait for the control loop to acknowledge output off; unsuccessful writes do not apply the proposed settings.
 - Factory reset waits for output-off acknowledgment before erasing data and restarting.
 - HTTP/network activity runs in a separate task from the control loop.

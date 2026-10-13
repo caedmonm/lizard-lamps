@@ -2,7 +2,7 @@
 
 A self-contained ESP32 controller for two AC heat lamps, originally built for a reptile enclosure. It hosts its own modern, responsive web dashboard: connect to its setup hotspot, enter Wi-Fi details, then manage your habitat from the device's IP address.
 
-**The web dashboard and its JSON API run directly on the ESP32.** No cloud service, frontend build or external server is required. All CSS and JavaScript are embedded in firmware.
+**The web dashboard and its JSON API run directly on the ESP32.** No cloud service, frontend build or external server is required. All CSS, JavaScript and the dashboard favicon are embedded in firmware.
 
 ## What it does
 
@@ -45,7 +45,7 @@ Identify your physical probes by their readings and displayed OneWire addresses.
 
 The schedule repeats daily in **Europe/London** local time. Lamp 1 runs from its start time until lamp 2's start time; lamp 2 runs until lamp 1 starts again. Start times must differ. For example, 07:00 / 19:00 selects lamp 1 during the day and lamp 2 overnight. Reversing those times makes lamp 1 cover the overnight period.
 
-Only the selected lamp receives a nonzero power command. On a lamp change, both outputs are commanded off for a 20ms settling period before the new output is enabled. Each period has its own basking and ambient targets; switching periods changes the selected lamp and both target temperatures together. The overview shows the active period’s targets.
+Only the selected lamp receives a nonzero power command. Power changes fade linearly over 10 seconds. On a lamp change, the outgoing lamp fades to off over 10 seconds, both outputs stay off for a 20ms settling period, then the incoming lamp fades to its requested power over 10 seconds. A complete change between powered lamps takes approximately 20 seconds; they never overlap. New power requests during a fade start a new 10-second ramp from the current output. Each period has its own basking and ambient targets; switching periods changes the selected lamp and both target temperatures together. The overview shows the active period’s targets.
 
 Both probes influence the selected lamp:
 
@@ -58,13 +58,13 @@ requested power = clamp(largest deficit / dimming range, 0, 1) × 100%
 
 Open **Settings → Heating control** to turn dimming on or off. With dimming on (the default), set the **Dimming range**: the lamp receives full power when the greatest deficit reaches this range and progressively dims as the targets approach. The default range is 3°C.
 
-With dimming off, the selected lamp receives either 100% or 0%. It stays on until **both** probes reach their respective targets, then stays off until **either** probe falls by the **Restart temperature drop** below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C. The default drop is 2°C. Both ranges accept 0.1–10°C and apply to both day and night. Each mode retains its own range when switching modes.
+With dimming off, the selected lamp targets either 100% or 0%, with a 10-second fade between them. It stays on until **both** probes reach their respective targets, then stays off until **either** probe falls by the **Restart temperature drop** below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C. The default drop is 2°C. Both ranges accept 0.1–10°C and apply to both day and night. Each mode retains its own range when switching modes.
 
 On startup, after a fault or settings save, and when the active period or its targets change, on/off control starts from off and waits for the restart threshold. Existing sensor, clock and zero-cross safeguards apply in both modes.
 
 The sketch rounds to a whole percentage and enables Mycila's power lookup table. With dimming on and the default 3°C range, a 2°C greatest deficit requests approximately 67% power. Requested power is not measured electrical wattage.
 
-Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
+Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off immediately, bypassing fades. Maintenance and factory reset also stop heating immediately. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
 
 Heating is also disabled until the combined schedule and all four targets are saved and a valid clock is available. After time has been set, scheduling continues locally without Wi-Fi. After a power interruption, wait for NTP or press **Use browser time** on the overview; check the phone/computer clock first. JavaScript also supplies fallback time when saving setup/settings forms.
 
