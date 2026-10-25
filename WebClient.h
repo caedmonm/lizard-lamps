@@ -20,10 +20,10 @@ const char WebClient[] PROGMEM = R"JS(
     document.querySelectorAll('[data-temperature]').forEach(e=>{const v=s.temperatures[Number(e.dataset.temperature)];e.textContent=v===null?'—':Number(v).toFixed(1)});
     document.querySelectorAll('[data-target]').forEach(e=>{const v=s.targets[Number(e.dataset.target)];e.textContent=v===null?'—':Number(v).toFixed(1)+'°C'});
     text('controller-clock',s.clock);text('connectivity',s.wifiConnected?'● Wi-Fi connected':'○ Wi-Fi offline');
-    text('active-period',s.activeLamp===0?'Day · Lamp 1':s.activeLamp===1?'Night · Lamp 2':'Waiting for schedule');
+    text('active-period',s.floorMode===1?'Minimum recovery · Both lamps':s.floorMode===2?'Minimum hold · Night lamp':s.activeLamp===0?'Day · Lamp 1':s.activeLamp===1?'Night · Lamp 2':'Waiting for schedule');
     text('power-state',s.power>0?'Heating':'Output off');text('power-percent',s.power+'%');
     if($('power-bar'))$('power-bar').style.width=Math.max(0,Math.min(100,s.power))+'%';
-    const fault=!s.sensorsHealthy?'check both temperature probes and temperature limits.':!s.dimmerOnline?'zero-cross detection is unavailable.':!s.clockValid?'waiting for a valid clock. Use your browser time below, or wait for network time.':!s.configured?'finish saving the day and night schedule.':'';
+    const fault=!s.sensorsHealthy?'check both temperature probes and temperature limits.':!s.dimmerOnline?'zero-cross detection is unavailable.':!s.clockValid&&!s.floorMode?'waiting for a valid clock. Use your browser time below, or wait for network time.':!s.configured&&!s.floorMode?'finish saving the day and night schedule.':'';
     if($('heating-fault')){$('heating-fault').hidden=!fault;$('heating-fault').textContent=fault?'Heating paused — '+fault:''}
     if($('clock-action'))$('clock-action').hidden=s.clockValid;
     text('live-update','Live · Updated '+new Date().toLocaleTimeString());

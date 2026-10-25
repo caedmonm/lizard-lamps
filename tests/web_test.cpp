@@ -68,6 +68,20 @@ int main(int argc, char** argv){
  server.args={{"view","settings"}};render();assert(server.body.find("Restart temperature drop")!=String::npos&&server.body.find("value='0' selected")!=String::npos);
  controlArgs();server.args["dimmingEnabled"]="1";server.routes["/control"]();assert(server.code==303&&deviceConfig.dimmingEnabled);
  server.routes["/api/config"]();assert(server.body.find("\"dimmingEnabled\":true")!=String::npos&&server.body.find("\"dimmingRange\":4.0")!=String::npos&&server.body.find("\"restartDrop\":2.0")!=String::npos);
+ controlArgs();server.args["minimumTemperature"]="17.5";server.routes["/api/control"]();
+ assert(server.code==200&&deviceConfig.minimumTemperature==17.5f);
+ for(const char* bad:{"nan","inf","4.9","40.1","17junk",""}){
+   controlArgs();server.args["minimumTemperature"]=bad;server.routes["/api/control"]();
+   assert(server.code==422&&deviceConfig.minimumTemperature==17.5f);
+ }
+ controlArgs();server.routes["/api/control"]();assert(deviceConfig.minimumTemperature==17.5f);
+ server.routes["/api/config"]();assert(server.body.find("\"minimumTemperature\":17.5")!=String::npos);
+ deviceStatus.floorMode=Control::FloorMode::Recovery;deviceStatus.activeLamp=2;
+ server.args={{"view","monitor"}};render();assert(server.body.find("Minimum recovery · Both lamps")!=String::npos);
+ server.routes["/api/status"]();assert(server.body.find("\"floorMode\":1")!=String::npos&&server.body.find("\"lampPower\":[")!=String::npos);
+ deviceStatus.floorMode=Control::FloorMode::NightHold;
+ server.args={{"view","monitor"}};render();assert(server.body.find("Minimum hold · Night lamp")!=String::npos);
+ deviceStatus.floorMode=Control::FloorMode::Normal;
  deviceStatus.temperatures[0]=29.4f;deviceStatus.temperatures[1]=23.1f;
  deviceStatus.sensorsHealthy=true;deviceStatus.dimmerOnline=true;deviceStatus.clockValid=true;deviceStatus.power=30;deviceStatus.activeLamp=0;deviceStatus.targets[0]=30;deviceStatus.targets[1]=24;
  deviceConfig.probesSet=true;

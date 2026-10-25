@@ -12,6 +12,8 @@ struct DeviceStatus {
   bool clockValid = false;
   int activeLamp = -1;
   int power = 0;
+  int lampPower[2] = {0, 0};
+  Control::FloorMode floorMode = Control::FloorMode::Normal;
   float targets[2] = {NAN, NAN};
   unsigned long lastReading = 0;
 };

@@ -10,6 +10,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 - Local dashboard showing **basking spot** and **ambient** temperatures, targets, selected lamp, requested power, connectivity and faults.
 - Two daily start times for switching between lamp 1 and lamp 2, including periods spanning midnight.
 - Independent day and night basking/ambient targets, with adjustable dimming or full-on/full-off heating on the selected lamp.
+- Configurable minimum-temperature protection: both lamps recover a cold enclosure; the night lamp maintains the floor without Wi-Fi or wall time.
 - Persistent Wi-Fi details, dashboard password, targets, schedule, heating control settings and fixed probe addresses.
 - Probe label swapping, Wi-Fi recovery after disconnection and a confirmed factory reset.
 - Europe/London clock with daylight saving, NTP synchronization and browser-time fallback.
@@ -25,7 +26,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 3. Open a browser and visit **[http://192.168.4.1](http://192.168.4.1)**. The setup page may also open automatically. Stay connected if your phone warns that the hotspot has no internet.
 4. Enter the name and password of your **2.4GHz** Wi-Fi network and choose whether to require a dashboard password. Protection is enabled by default; use 8–63 characters, or uncheck **Require a password to manage this device**. Empty Wi-Fi passwords are supported for open networks.
 5. If protection is enabled, sign in with username **admin** and your chosen dashboard password.
-6. Open **Schedule & temps** and save both periods together: **Day · Lamp 1** and **Night · Lamp 2** each have a start time, basking spot target and ambient target. Initial values are 19°C for all four targets, day at 07:00 and night at 19:00; save the combined form before heating can run.
+6. Open **Schedule & temps** and save both periods together: **Day · Lamp 1** and **Night · Lamp 2** each have a start time, basking spot target and ambient target. Initial values are 19°C for all four targets, day at 07:00 and night at 19:00; save the combined form before scheduled heating can run. Minimum-temperature protection defaults to 15°C; choose your required floor in **Settings → Heating control**.
 7. Rejoin your normal Wi-Fi and visit **[http://lizard-lamps.local](http://lizard-lamps.local)**. If your network does not resolve that name, use the LAN IP shown on the connection success page, dashboard banner or Device page. Serial Monitor at 115200 baud also prints both addresses. The setup hotspot closes two minutes after a successful connection.
 
 Once the combined schedule and targets are saved, the default page is the live overview. It polls the status API approximately every 2 seconds and updates readings, targets, selected lamp, power and faults in place. Wi-Fi connection progress also updates through AJAX. Settings forms save through AJAX with inline confirmation/errors; editing does not reload the page. The interface works without downloading fonts, scripts or styles from the internet.
@@ -45,7 +46,7 @@ Identify your physical probes by their readings and displayed OneWire addresses.
 
 The schedule repeats daily in **Europe/London** local time. Lamp 1 runs from its start time until lamp 2's start time; lamp 2 runs until lamp 1 starts again. Start times must differ. For example, 07:00 / 19:00 selects lamp 1 during the day and lamp 2 overnight. Reversing those times makes lamp 1 cover the overnight period.
 
-Only the selected lamp receives a nonzero power command. Power changes fade linearly over 10 seconds. On a lamp change, the outgoing lamp fades to off over 10 seconds, both outputs stay off for a 20ms settling period, then the incoming lamp fades to its requested power over 10 seconds. A complete change between powered lamps takes approximately 20 seconds; they never overlap. New power requests during a fade start a new 10-second ramp from the current output. Each period has its own basking and ambient targets; switching periods changes the selected lamp and both target temperatures together. The overview shows the active period’s targets.
+During normal scheduled heating, only the selected lamp receives a nonzero power command. Power changes fade linearly over 10 seconds. On a lamp change, the outgoing lamp fades to off over 10 seconds, both outputs stay off for a 20ms settling period, then the incoming lamp fades to its requested power over 10 seconds. A complete change between powered lamps takes approximately 20 seconds; normal scheduled transitions never overlap. Minimum-temperature recovery intentionally powers both lamps. New power requests during a fade start a new 10-second ramp from the current output. Each period has its own basking and ambient targets; switching periods changes the selected lamp and both target temperatures together. The overview shows the active period’s targets.
 
 Both probes influence the selected lamp:
 
@@ -62,21 +63,32 @@ With dimming off, the selected lamp targets either 100% or 0%, with a 10-second 
 
 On startup, after a fault or settings save, and when the active period or its targets change, on/off control starts from off and waits for the restart threshold. Existing sensor, clock and zero-cross safeguards apply in both modes.
 
+### Minimum safe temperature
+
+**Settings → Heating control → Minimum safe temperature** accepts 5–40°C and is saved across reboots. The default, including upgrades from v1–v3, is **15°C**; choose a value appropriate to your enclosure.
+
+If **either** healthy probe reads below the minimum, **both lamps immediately request 100%**, bypassing normal fades and the schedule. Recovery continues until **both** probes reach the minimum. When normal scheduled heating has no demand (including its on/off restart band), or a clock/schedule is unavailable, the **night lamp alone** maintains the floor: on at the minimum, off when both probes reach minimum + 0.5°C. Any new reading below the minimum reactivates both lamps. Normal scheduled heating resumes whenever it requests heat after recovery; the floor never lowers its targets.
+
+This guard operates locally without Wi-Fi, NTP or a browser, after the first healthy readings and valid zero-cross detection, including before schedule setup. Missing/invalid/stale probes, either probe reaching 45°C, unavailable zero-cross detection, maintenance and reset still command both lamps off. A stopped processor, absent mains supply or failed lamp cannot be corrected by this software.
+
+The overview labels **Minimum recovery · Both lamps** and **Minimum hold · Night lamp**, and displays the minimum as the active target during floor protection. Requested power is the greater of the two channel requests, not their sum; the status API also reports each channel separately.
+
 The sketch rounds to a whole percentage and enables Mycila's power lookup table. With dimming on and the default 3°C range, a 2°C greatest deficit requests approximately 67% power. Requested power is not measured electrical wattage.
 
 Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off immediately, bypassing fades. Maintenance and factory reset also stop heating immediately. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
 
-Heating is also disabled until the combined schedule and all four targets are saved and a valid clock is available. After time has been set, scheduling continues locally without Wi-Fi. After a power interruption, wait for NTP or press **Use browser time** on the overview; check the phone/computer clock first. JavaScript also supplies fallback time when saving setup/settings forms.
+Scheduled heating is disabled until the combined schedule and all four targets are saved and a valid clock is available. Minimum-temperature protection remains available without that schedule or clock. After time has been set, scheduling continues locally without Wi-Fi. After a power interruption, scheduled heating waits for NTP; minimum-temperature protection runs in the meantime. To restore scheduling, wait for NTP or press **Use browser time** on the overview; check the phone/computer clock first. JavaScript also supplies fallback time when saving setup/settings forms.
 
 DST behavior is based on the current wall-clock period: spring skips nonexistent local times; the autumn repeated hour follows the repeated local times. The controller selects the appropriate lamp from the current time, rather than replaying missed events.
 
 ## Upgrading existing devices
 
-Saved settings from both earlier configuration versions are migrated automatically. Upgrades retain dimming on with its previous 3°C range; the new restart drop defaults to 2°C. Existing Wi-Fi credentials, dashboard password, switch times and probe mappings are preserved. The previous basking and ambient targets are copied into **both** day and night so upgrading does not unexpectedly change heating behavior. Edit **Schedule & temps** to choose different temperatures for each period. Incomplete previous setup stays disabled until the combined form is saved.
+Saved settings from configuration versions 1–3 are migrated automatically. The minimum defaults to 15°C; existing Wi-Fi credentials, dashboard password, switch times, probe mappings and targets are preserved. Version 3 retains its chosen dimming mode and ranges. Versions 1–2 default to dimming on with a 3°C range and a 2°C restart drop. Version 1's shared basking/ambient targets are copied into both periods. Edit **Schedule & temps** to choose different temperatures for each period. Incomplete previous setup still requires the combined form for scheduled heating; minimum-temperature protection remains available.
+
 
 ## Wi-Fi recovery and reset
 
-The device reconnects automatically. If disconnected for 30 seconds, it opens the same open recovery hotspot. Saved control settings remain active when the clock and hardware are healthy. Visit 192.168.4.1 and sign in if protection is enabled to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
+The device reconnects automatically. If disconnected for 30 seconds, it opens the same open recovery hotspot. Scheduled control remains active when the clock and hardware are healthy. Minimum-temperature protection needs healthy hardware but no clock. Visit 192.168.4.1 and sign in if protection is enabled to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
 
 **Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule and probe mapping, clears the ESP32 station credentials, and restarts. Join the open LizardLamps-XXXXXX hotspot and visit http://192.168.4.1 to start again.
 
@@ -143,13 +155,13 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | GET | `/api/config` | Day/night start times, targets, probe identities and protection state |
 | POST | `/api/schedule` | Save both periods and all four targets together |
 | POST | `/api/wifi` | Save Wi-Fi details and initial dashboard protection choice |
-| POST | `/api/control` | Save dimming mode, dimming range and restart temperature drop |
+| POST | `/api/control` | Save dimming mode, ranges and minimum safe temperature |
 | POST | `/api/admin` | Enable, disable or change dashboard password protection |
 | POST | `/api/clock` | Supply browser-time fallback |
 | POST | `/api/probes` | Swap basking/ambient probe identities |
 | POST | `/api/reset` | Confirm factory reset |
 
-Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (on) or `0` (off), plus `dimmingRange` when on or `restartDrop` when off, in °C. The inactive range may be omitted to preserve its saved value. `/api/config` returns these three settings. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
+Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (on) or `0` (off), plus `dimmingRange` when on or `restartDrop` when off, in °C. The inactive range may be omitted to preserve its saved value. `minimumTemperature` optionally sets the 5–40°C floor; omitting it preserves the saved value. `/api/config` returns all four settings. `/api/status` adds `lampPower: [day, night]` and `floorMode` (`0` normal, `1` recovery, `2` night hold); `activeLamp=2` means both lamps during recovery. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
 
 Missing/disconnected readings are JSON `null`. The client shows a connection-loss notice when polling fails, avoids overlapping polls, backs off on failures and pauses network requests while the tab is hidden. After Wi-Fi setup, navigation to the connection page is intentional; there are no automatic full-page refreshes.
 

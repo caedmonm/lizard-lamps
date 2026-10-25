@@ -139,6 +139,33 @@ int main() {
   assert(rollover.update(true, 0, 100, 9).percent == 0);
   assert(rollover.update(true, 0, 100, 5009).percent == 50);
   assert(rollover.update(true, 0, 100, 10009).percent == 100);
+  MinimumTemperatureController floor;
+  auto protect = [&](float basking, float ambient, bool hardware = true, bool schedule = false) {
+    return floor.update(hardware, basking, ambient, 15, schedule);
+  };
+  // Cold boot, no Wi-Fi/clock/schedule: both channels immediately recover.
+  auto recovery = protect(10, 12);
+  assert(recovery.mode == FloorMode::Recovery && recovery.day == 100 && recovery.night == 100);
+  assert(protect(15, 14.9f, true, true).mode == FloorMode::Recovery);
+  auto hold = protect(15, 15);
+  assert(hold.mode == FloorMode::NightHold && hold.day == 0 && hold.night == 100);
+  assert(protect(15.4f, 16).night == 100);
+  assert(protect(15.5f, 16).mode == FloorMode::Normal); // Release normal fades above the holding band.
+  assert(protect(15.1f, 16).night == 0);
+  assert(protect(15, 16).night == 100);
+  assert(protect(14.9f, 16).day == 100); // Either probe re-triggers boost.
+  assert(protect(16, 16, true, true).mode == FloorMode::Normal); // Normal heat resumes.
+  assert(protect(16, 14, true, true).day == 100); // Floor overrides normal demand.
+  for (float bad : {NAN, INFINITY, -127.0f, 45.0f, 85.0f}) {
+    auto stopped = protect(10, bad);
+    assert(stopped.day == 0 && stopped.night == 0 && stopped.mode == FloorMode::Normal);
+    assert(protect(10, 12).day == 100); // Healthy readings recover without reboot.
+  }
+  assert(protect(10, 12, false).day == 0); // Stale, ZC loss, maintenance/reset.
+  assert(protect(10, 12).night == 100);
+  assert(floor.update(true, 10, 12, NAN, false).day == 0);
+  assert(floor.update(true, 10, 12, 41, false).night == 0);
+  assert(floor.update(true, 18, 18, 19, false).day == 100); // Setting changes apply immediately.
   float controlRange;
   assert(parseControlRange("0.1", controlRange) && controlRange == 0.1f);
   assert(parseControlRange("10", controlRange) && controlRange == 10);

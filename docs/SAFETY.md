@@ -11,19 +11,20 @@ Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current r
 ## Firmware safeguards
 
 - Output pins are driven low during startup; initialized dimmers receive zero-duty commands.
-- All four day/night targets, the combined schedule and a valid clock are required before heating.
+- All four day/night targets, the combined schedule and a valid clock are required for scheduled heating. Minimum-temperature protection (default 15°C, configurable 5–40°C) works without a clock or saved schedule once both bound probes and zero-cross detection are healthy.
 - Probes use saved addresses, with no automatic replacement of missing probes.
 - Disconnected, non-finite, below -20°C, or at/above 45°C readings disable heating.
 - A last-reading timeout of 3 seconds disables heating when the loop can evaluate it.
 - Invalid configuration and unavailable zero-cross detection request zero output.
-- Normal power changes fade over 10 seconds. Lamp switching fades the outgoing lamp to off, waits 20ms with both outputs off, then fades the incoming lamp up over 10 seconds. Faults and maintenance bypass fades and command immediate off.
+- Below the minimum on either probe, both lamps immediately request full output until both reach the floor. With no scheduled demand, the night lamp then holds the minimum with a 0.5°C band. Floor requests bypass fades; they intentionally allow simultaneous outputs during recovery. Verify the supply and dimmer can support both loads together.
+- Normal scheduled power changes fade over 10 seconds. Lamp switching fades the outgoing lamp to off, waits 20ms with both outputs off, then fades the incoming lamp up over 10 seconds. Faults and maintenance bypass fades and command immediate off.
 - Configuration writes wait for the control loop to acknowledge output off; unsuccessful writes do not apply the proposed settings.
 - Factory reset waits for output-off acknowledgment before erasing data and restarting.
 - HTTP/network activity runs in a separate task from the control loop.
 
 The 45°C threshold is fixed in `ControlLogic.h` and must be assessed for the actual enclosure. It is not an independent thermal cutout. Fault shutdown is not latched: heating may resume once readings and other required conditions are healthy.
 
-Both probes can request heating from the same selected lamp. One warm probe does not prevent a colder probe from requesting full power while temperatures are below the limit.
+Both probes can request scheduled heating from the same selected lamp, or both lamps during minimum-temperature recovery. One warm probe does not prevent a colder probe from requesting full power while temperatures are below the limit.
 
 ## Remaining limitations
 

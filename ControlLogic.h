@@ -113,6 +113,39 @@ public:
     return {lamp, int(std::lround(current))};
   }
 };
+// Floor protection is independent of wall time and scheduled hysteresis.
+// Both probes must recover. Hardware health and maintenance always take priority.
+enum class FloorMode { Normal, Recovery, NightHold };
+struct FloorDemand { FloorMode mode; int day; int night; };
+class MinimumTemperatureController {
+  bool recovering = false, holding = false;
+  float previousMinimum = NAN;
+public:
+  FloorDemand update(bool healthy, float basking, float ambient, float minimum,
+                     bool scheduledHeating) {
+    if (!healthy || !validTemperature(basking) || !validTemperature(ambient) || !validTarget(minimum)) {
+      recovering = holding = false;
+      return {FloorMode::Normal, 0, 0};
+    }
+    if (minimum != previousMinimum) recovering = holding = false;
+    previousMinimum = minimum;
+    const float coldest = std::fmin(basking, ambient);
+    if (coldest < minimum) recovering = true;
+    if (recovering && coldest >= minimum) {
+      recovering = false;
+      holding = true;
+    }
+    if (recovering) return {FloorMode::Recovery, 100, 100};
+    // Night-only thermostat anticipates another dip below the floor by 0.5 C.
+    if (coldest <= minimum) holding = true;
+    else if (coldest >= minimum + 0.5f) holding = false;
+    if (scheduledHeating) {
+      holding = false;
+      return {FloorMode::Normal, 0, 0};
+    }
+    return {holding ? FloorMode::NightHold : FloorMode::Normal, 0, holding ? 100 : 0};
+  }
+};
 inline bool parseControlRange(const char* text, float& value) {
   if (!*text) return false;
   char* end;
