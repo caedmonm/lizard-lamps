@@ -143,29 +143,39 @@ int main() {
   auto protect = [&](float basking, float ambient, bool hardware = true, bool schedule = false) {
     return floor.update(hardware, basking, ambient, 15, schedule);
   };
-  // Cold boot, no Wi-Fi/clock/schedule: both channels immediately recover.
+  // Cold boot without Wi-Fi/clock: exactly 5 C below minimum enables both lamps.
   auto recovery = protect(10, 12);
   assert(recovery.mode == FloorMode::Recovery && recovery.day == 100 && recovery.night == 100);
-  assert(protect(15, 14.9f, true, true).mode == FloorMode::Recovery);
-  auto hold = protect(15, 15);
+  assert(protect(9.9f, 20).day == 100);
+  auto nightOnly = protect(10.1f, 12, true, true);
+  assert(nightOnly.mode == FloorMode::NightHold && nightOnly.day == 0 && nightOnly.night == 100);
+  assert(protect(14.9f, 10, true, true).day == 0); // Night alone overrides scheduled day demand.
+  auto hold = protect(15, 10);
   assert(hold.mode == FloorMode::NightHold && hold.day == 0 && hold.night == 100);
-  assert(protect(15.4f, 16).night == 100);
-  assert(protect(15.5f, 16).mode == FloorMode::Normal); // Release normal fades above the holding band.
-  assert(protect(15.1f, 16).night == 0);
+  assert(protect(15.4f, 5).night == 100);
+  assert(protect(15.5f, 5).mode == FloorMode::Normal); // Only basking releases holding.
+  assert(protect(15.1f, 5).night == 0);
   assert(protect(15, 16).night == 100);
-  assert(protect(14.9f, 16).day == 100); // Either probe re-triggers boost.
-  assert(protect(16, 16, true, true).mode == FloorMode::Normal); // Normal heat resumes.
-  assert(protect(16, 14, true, true).day == 100); // Floor overrides normal demand.
+  assert(protect(14.9f, 16).day == 0);
+  assert(protect(10, 16).day == 100); // A fresh severe dip re-enables day assistance.
+  assert(protect(16, 5, true, true).mode == FloorMode::Normal); // Cold ambient cannot trigger the floor.
+  assert(protect(16, 5).night == 0);
+  // Invalid or overheated ambient still stops heating, despite not setting demand.
   for (float bad : {NAN, INFINITY, -127.0f, 45.0f, 85.0f}) {
     auto stopped = protect(10, bad);
     assert(stopped.day == 0 && stopped.night == 0 && stopped.mode == FloorMode::Normal);
     assert(protect(10, 12).day == 100); // Healthy readings recover without reboot.
+    stopped = protect(bad, 12);
+    assert(stopped.day == 0 && stopped.night == 0);
   }
-  assert(protect(10, 12, false).day == 0); // Stale, ZC loss, maintenance/reset.
+  auto stopped = protect(10, 12, false); // Stale, ZC loss, maintenance/reset.
+  assert(stopped.day == 0 && stopped.night == 0);
   assert(protect(10, 12).night == 100);
   assert(floor.update(true, 10, 12, NAN, false).day == 0);
   assert(floor.update(true, 10, 12, 41, false).night == 0);
-  assert(floor.update(true, 18, 18, 19, false).day == 100); // Setting changes apply immediately.
+  auto changed = floor.update(true, 18, 18, 19, false);
+  assert(changed.day == 0 && changed.night == 100); // Setting changes apply immediately.
+  assert(floor.update(true, 14, 18, 19, false).day == 100);
   float controlRange;
   assert(parseControlRange("0.1", controlRange) && controlRange == 0.1f);
   assert(parseControlRange("10", controlRange) && controlRange == 10);

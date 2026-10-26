@@ -134,7 +134,8 @@ void loop() {
   deviceStatus.lampPower[1] = night;
   deviceStatus.floorMode = floorActive ? floor.mode : Control::FloorMode::Normal;
   for (int probe = 0; probe < 2; ++probe)
-    deviceStatus.targets[probe] = floorActive ? config.minimumTemperature : (activeLamp >= 0 ? config.targets[activeLamp][probe] : NAN);
+    deviceStatus.targets[probe] = floorActive ? (probe == 0 ? config.minimumTemperature : NAN) :
+                                  (activeLamp >= 0 ? config.targets[activeLamp][probe] : NAN);
   if (stopped && power == 0) maintenanceAcknowledged = true;
   deviceStatus.lastReading = lastReading;
   xSemaphoreGive(stateMutex);

@@ -16,7 +16,7 @@ Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current r
 - Disconnected, non-finite, below -20°C, or at/above 45°C readings disable heating.
 - A last-reading timeout of 3 seconds disables heating when the loop can evaluate it.
 - Invalid configuration and unavailable zero-cross detection request zero output.
-- Below the minimum on either probe, both lamps immediately request full output until both reach the floor. With no scheduled demand, the night lamp then holds the minimum with a 0.5°C band. Floor requests bypass fades; they intentionally allow simultaneous outputs during recovery. Verify the supply and dimmer can support both loads together.
+- Below the minimum on the basking probe, the night lamp immediately requests full output until basking reaches the floor. Day assistance requests full output only while basking is at least 5°C below the minimum; it stops immediately above that threshold. Ambient readings do not set minimum demand, but both probes retain fault/over-temperature shutdown. With no scheduled demand, the night lamp then holds the basking minimum with a 0.5°C band. Floor requests bypass fades; they intentionally allow simultaneous outputs during recovery. Verify the supply and dimmer can support both loads together.
 - Normal scheduled power changes fade over 10 seconds. Lamp switching fades the outgoing lamp to off, waits 20ms with both outputs off, then fades the incoming lamp up over 10 seconds. Faults and maintenance bypass fades and command immediate off.
 - Configuration writes wait for the control loop to acknowledge output off; unsuccessful writes do not apply the proposed settings.
 - Factory reset waits for output-off acknowledgment before erasing data and restarting.
@@ -24,7 +24,7 @@ Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current r
 
 The 45°C threshold is fixed in `ControlLogic.h` and must be assessed for the actual enclosure. It is not an independent thermal cutout. Fault shutdown is not latched: heating may resume once readings and other required conditions are healthy.
 
-Both probes can request scheduled heating from the same selected lamp, or both lamps during minimum-temperature recovery. One warm probe does not prevent a colder probe from requesting full power while temperatures are below the limit.
+Both probes can request scheduled heating from the same selected lamp, while minimum protection uses only basking demand and adds day assistance only at a deficit of at least 5°C. One warm probe does not prevent a colder probe from requesting full power while temperatures are below the limit.
 
 ## Remaining limitations
 

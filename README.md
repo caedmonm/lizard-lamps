@@ -10,7 +10,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 - Local dashboard showing **basking spot** and **ambient** temperatures, targets, selected lamp, requested power, connectivity and faults.
 - Two daily start times for switching between lamp 1 and lamp 2, including periods spanning midnight.
 - Independent day and night basking/ambient targets, with adjustable dimming or full-on/full-off heating on the selected lamp.
-- Configurable minimum-temperature protection: both lamps recover a cold enclosure; the night lamp maintains the floor without Wi-Fi or wall time.
+- Configurable minimum-temperature protection: the night lamp heats the basking spot, with day assistance only at least 5°C below the minimum, and maintains the floor without Wi-Fi or wall time.
 - Persistent Wi-Fi details, dashboard password, targets, schedule, heating control settings and fixed probe addresses.
 - Probe label swapping, Wi-Fi recovery after disconnection and a confirmed factory reset.
 - Europe/London clock with daylight saving, NTP synchronization and browser-time fallback.
@@ -67,11 +67,14 @@ On startup, after a fault or settings save, and when the active period or its ta
 
 **Settings → Heating control → Minimum safe temperature** accepts 5–40°C and is saved across reboots. The default, including upgrades from v1–v3, is **15°C**; choose a value appropriate to your enclosure.
 
-If **either** healthy probe reads below the minimum, **both lamps immediately request 100%**, bypassing normal fades and the schedule. Recovery continues until **both** probes reach the minimum. When normal scheduled heating has no demand (including its on/off restart band), or a clock/schedule is unavailable, the **night lamp alone** maintains the floor: on at the minimum, off when both probes reach minimum + 0.5°C. Any new reading below the minimum reactivates both lamps. Normal scheduled heating resumes whenever it requests heat after recovery; the floor never lowers its targets.
+Only the **basking spot probe** controls minimum-temperature demand. Below the minimum, the **night lamp immediately requests 100%**, bypassing normal fades and the schedule. The **day lamp also requests 100% only while basking is at least 5°C below the minimum** (including exactly 5°C); it switches off as soon as basking rises above that threshold. For example, with a 20°C minimum, both lamps run at 15°C or below, and night alone runs above 15°C until basking reaches 20°C. Ambient temperature does not trigger, prolong or release minimum heating.
+
+When normal scheduled heating has no demand (including its on/off restart band), or a clock/schedule is unavailable, the **night lamp alone** maintains the floor: on when basking reaches the minimum, off at minimum + 0.5°C. Normal scheduled heating resumes whenever it requests heat after basking recovers to the minimum; the floor never lowers its targets. Both probes still participate in normal scheduled control and fault shutdown.
+
 
 This guard operates locally without Wi-Fi, NTP or a browser, after the first healthy readings and valid zero-cross detection, including before schedule setup. Missing/invalid/stale probes, either probe reaching 45°C, unavailable zero-cross detection, maintenance and reset still command both lamps off. A stopped processor, absent mains supply or failed lamp cannot be corrected by this software.
 
-The overview labels **Minimum recovery · Both lamps** and **Minimum hold · Night lamp**, and displays the minimum as the active target during floor protection. Requested power is the greater of the two channel requests, not their sum; the status API also reports each channel separately.
+The overview labels **Minimum recovery · Both lamps** and **Minimum hold · Night lamp**, and displays the minimum as the basking target during floor protection; ambient has no floor target. Requested power is the greater of the two channel requests, not their sum; the status API also reports each channel separately.
 
 The sketch rounds to a whole percentage and enables Mycila's power lookup table. With dimming on and the default 3°C range, a 2°C greatest deficit requests approximately 67% power. Requested power is not measured electrical wattage.
 
@@ -88,7 +91,7 @@ Saved settings from configuration versions 1–3 are migrated automatically. The
 
 ## Wi-Fi recovery and reset
 
-The device reconnects automatically. If disconnected for 30 seconds, it opens the same open recovery hotspot. Scheduled control remains active when the clock and hardware are healthy. Minimum-temperature protection needs healthy hardware but no clock. Visit 192.168.4.1 and sign in if protection is enabled to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
+The device keeps automatic Wi-Fi reconnect enabled and explicitly retries the saved network every **60 seconds** while disconnected, indefinitely. After losing an established connection, it gives automatic reconnect a minute before the first explicit retry; startup and saved Wi-Fi changes attempt immediately. A minute allows time for association/DHCP and avoids continually restarting the connection attempt. If disconnected for 30 seconds, it opens the same open recovery hotspot. Periodic retries preserve that hotspot and saved credentials; it closes two minutes after reconnection. If Wi-Fi remains connected but the router loses internet access, the controller keeps its LAN connection and local dashboard available instead of restarting healthy Wi-Fi. Network-time synchronization remains enabled. Scheduled control remains active when the clock and hardware are healthy. Minimum-temperature protection needs healthy hardware but no clock. Visit 192.168.4.1 and sign in if protection is enabled to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
 
 **Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule and probe mapping, clears the ESP32 station credentials, and restarts. Join the open LizardLamps-XXXXXX hotspot and visit http://192.168.4.1 to start again.
 

@@ -114,7 +114,7 @@ public:
   }
 };
 // Floor protection is independent of wall time and scheduled hysteresis.
-// Both probes must recover. Hardware health and maintenance always take priority.
+// Only basking drives the floor demand; both probes remain required for safety.
 enum class FloorMode { Normal, Recovery, NightHold };
 struct FloorDemand { FloorMode mode; int day; int night; };
 class MinimumTemperatureController {
@@ -129,16 +129,19 @@ public:
     }
     if (minimum != previousMinimum) recovering = holding = false;
     previousMinimum = minimum;
-    const float coldest = std::fmin(basking, ambient);
-    if (coldest < minimum) recovering = true;
-    if (recovering && coldest >= minimum) {
+    if (basking < minimum) recovering = true;
+    if (recovering && basking >= minimum) {
       recovering = false;
       holding = true;
     }
-    if (recovering) return {FloorMode::Recovery, 100, 100};
+    if (recovering) {
+      // Day assistance stops as soon as basking rises above the 5 C deficit.
+      bool dayAssist = basking <= minimum - 5.0f;
+      return {dayAssist ? FloorMode::Recovery : FloorMode::NightHold, dayAssist ? 100 : 0, 100};
+    }
     // Night-only thermostat anticipates another dip below the floor by 0.5 C.
-    if (coldest <= minimum) holding = true;
-    else if (coldest >= minimum + 0.5f) holding = false;
+    if (basking <= minimum) holding = true;
+    else if (basking >= minimum + 0.5f) holding = false;
     if (scheduledHeating) {
       holding = false;
       return {FloorMode::Normal, 0, 0};

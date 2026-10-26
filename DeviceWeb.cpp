@@ -22,6 +22,8 @@ bool hotspot = false;
 bool reconnectRequested = false;
 unsigned long disconnectedSince = 0, connectedSince = 0, rebootAt = 0;
 bool wasConnected = false;
+constexpr uint32_t NetworkRetryMs = 60000;
+uint32_t lastNetworkAttempt = 0;
 const char* Zone = "GMT0BST,M3.5.0/1,M10.5.0/2";
 
 String escape(const String& value) {
@@ -175,7 +177,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     for (int i = 0; i < 2; ++i) {
       h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'><span data-temperature='" + String(i) + "'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "</span><span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong data-target='" + String(i) + "'>" + String(isfinite(s.targets[i]) ? String(s.targets[i], 1) + "°C" : "—") + "</strong></div></section>";
     }
-    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2 id='active-period'>" + String(s.floorMode == Control::FloorMode::Recovery ? String("Minimum recovery · Both lamps") : s.floorMode == Control::FloorMode::NightHold ? String("Minimum hold · Night lamp") : s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill' id='power-state'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat' id='power-percent'>" + String(s.power) + "%</span></div><div class='power'><span id='power-bar' style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes control heating. Below the minimum, both lamps recover the temperature; the night lamp maintains the floor when scheduled heating is off.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span data-start='0'>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span data-start='1'>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Requested power is not a measured wattage.</p>";
+    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2 id='active-period'>" + String(s.floorMode == Control::FloorMode::Recovery ? String("Minimum recovery · Both lamps") : s.floorMode == Control::FloorMode::NightHold ? String("Minimum hold · Night lamp") : s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill' id='power-state'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat' id='power-percent'>" + String(s.power) + "%</span></div><div class='power'><span id='power-bar' style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes control scheduled heating. Minimum protection uses only the basking probe: the night lamp heats, with day assistance only at least 5°C below the minimum.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span data-start='0'>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span data-start='1'>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Requested power is not a measured wattage.</p>";
   } else if (view == "schedule") {
     h += "<section class='card'><h2>Day & night schedule</h2><p class='muted'>Set when each period begins and the temperatures to maintain. The schedule repeats daily in Europe/London time.</p>" + timeline(c) + "</section>" + formStart("/schedule");
     const char* periods[] = {"Day · Lamp 1", "Night · Lamp 2"};
@@ -192,7 +194,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     h += "<section class='card'><h2>Heating control</h2><p class='muted'>Choose gradual dimming or full-on/full-off heating. These settings apply to both lamps. Scheduled power changes fade over 10 seconds; minimum-temperature protection acts immediately.</p>" + formStart("/control");
     h += "<label for='dimmingEnabled'>Dimming</label><select id='dimmingEnabled' name='dimmingEnabled' data-dimming-toggle><option value='1'" + String(c.dimmingEnabled ? " selected" : "") + ">On</option><option value='0'" + String(!c.dimmingEnabled ? " selected" : "") + ">Off</option></select>";
     h += "<div data-dimming-range><label for='dimmingRange'>Dimming range · °C</label><input type='number' id='dimmingRange' name='dimmingRange' step='0.1' min='0.1' max='10' required value='" + String(c.dimmingRange, 1) + "'><p class='muted small'>With dimming on, power falls from 100% to off over this many degrees below the targets.</p></div>";
-    h += "<div data-restart-drop><label for='restartDrop'>Restart temperature drop · °C</label><input type='number' id='restartDrop' name='restartDrop' step='0.1' min='0.1' max='10' required value='" + String(c.restartDrop, 1) + "'><p class='muted small'>With dimming off, the lamp runs at 100% until both probes reach their targets. It stays off until either probe drops this far below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C.</p></div><label for='minimumTemperature'>Minimum safe temperature · °C</label><input type='number' id='minimumTemperature' name='minimumTemperature' step='0.1' min='5' max='40' required value='" + String(c.minimumTemperature, 1) + "'><p class='muted small'>If either probe falls below this, both lamps run at full power until both reach it. When scheduled heating is off or the clock is unavailable, the night lamp maintains this minimum with a 0.5°C holding band. Works without Wi-Fi or a clock, including before schedule setup. Probe and dimmer faults still stop heating.</p><button>Save heating control</button></form></section>";
+    h += "<div data-restart-drop><label for='restartDrop'>Restart temperature drop · °C</label><input type='number' id='restartDrop' name='restartDrop' step='0.1' min='0.1' max='10' required value='" + String(c.restartDrop, 1) + "'><p class='muted small'>With dimming off, the lamp runs at 100% until both probes reach their targets. It stays off until either probe drops this far below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C.</p></div><label for='minimumTemperature'>Minimum safe temperature · °C</label><input type='number' id='minimumTemperature' name='minimumTemperature' step='0.1' min='5' max='40' required value='" + String(c.minimumTemperature, 1) + "'><p class='muted small'>Only the basking probe controls this minimum. Below it, the night lamp runs at full power. The day lamp assists only while basking is at least 5°C below the minimum. When scheduled heating is off or the clock is unavailable, the night lamp maintains the minimum with a 0.5°C holding band. Works without Wi-Fi or a clock, including before schedule setup. Probe and dimmer faults still stop heating.</p><button>Save heating control</button></form></section>";
     h += "<section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code data-probe='0'>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code data-probe='1'>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Day and night targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
   } else {
     h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Dashboard access</h2>" + formStart("/admin") + "<input type='hidden' data-admin-current value='" + String(c.adminPassword[0] ? "1" : "0") + "'>" + adminFields(false, c) + "<button>Save password protection</button></form></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule and probe mappings. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
@@ -205,11 +207,17 @@ void startHotspot() {
   dns.start(53, "*", WiFi.softAPIP()); hotspot = true;
   Serial.printf("Open setup hotspot: %s | No password | Open http://192.168.4.1\n", hotspotName.c_str());
 }
-void connectNetwork() {
+void attemptNetworkConnection() {
   DeviceConfig c = configSnapshot();
-  if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
+  lastNetworkAttempt = millis();
+  if (!c.ssid[0]) return;
+  // Restart only station association; retain credentials and any recovery hotspot.
   WiFi.disconnect(false, false);
-  if (c.ssid[0]) WiFi.begin(c.ssid, c.wifiPassword);
+  WiFi.begin(c.ssid, c.wifiPassword);
+}
+void connectNetwork() {
+  if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
+  attemptNetworkConnection();
   disconnectedSince = millis(); connectedSince = 0; wasConnected = false;
 }
 void networkTick() {
@@ -224,8 +232,11 @@ void networkTick() {
   }
   if (!connected && wasConnected) {
     disconnectedSince = millis(); connectedSince = 0;
+    lastNetworkAttempt = millis(); // Give automatic reconnect a minute first.
     if (mdnsStarted) { MDNS.end(); mdnsStarted = false; }
   }
+  if (!connected && uint32_t(millis() - lastNetworkAttempt) >= NetworkRetryMs)
+    attemptNetworkConnection();
   if (!connected && !hotspot && millis() - disconnectedSince > 30000) startHotspot();
   if (connected && hotspot && millis() - connectedSince > 120000) {
     dns.stop(); WiFi.softAPdisconnect(true); WiFi.mode(WIFI_STA); hotspot = false;

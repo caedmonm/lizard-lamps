@@ -29,14 +29,15 @@ constexpr int portMAX_DELAY=0, pdPASS=1;
 inline void xSemaphoreTake(int,int){}
 inline void xSemaphoreGive(int){}
 inline int xTaskCreatePinnedToCore(void(*)(void*),const char*,int,void*,int,void*,int){return 1;}
-inline unsigned long millis(){return 100;}
+inline uint32_t testMillis = 100;
+inline unsigned long millis(){return testMillis;}
 inline void delay(int){}
 struct SerialType { template<class...T> void printf(const char*,T...){} void println(const char*){} }; inline SerialType Serial;
 struct ESPType { uint64_t getEfuseMac(){return 123;} void restart(){} }; inline ESPType ESP;
 inline uint32_t esp_random(){return 123;}
 struct IP { String toString() const{return "192.168.1.84";} };
 constexpr int WIFI_AP_STA=3,WIFI_STA=1,WL_CONNECTED=1,HTTP_GET=0,HTTP_POST=1,DIGEST_AUTH=1;
-struct WiFiType { bool connected=true; void persistent(bool){} void mode(int){} void setAutoReconnect(bool){} void setHostname(const char*){} bool openAP=false; bool softAP(const char*,const char* password=nullptr){openAP=password==nullptr;return true;} void softAPdisconnect(bool){} void disconnect(bool,bool){} void begin(const char*,const char*){} int status(){return connected?WL_CONNECTED:0;} IP localIP(){return{};} IP softAPIP(){return{};} }; inline WiFiType WiFi;
+struct WiFiType { bool connected=true; int beginCalls=0, disconnectCalls=0; bool autoReconnect=false, radioDisabled=false, credentialsErased=false; String lastSSID; void persistent(bool){} void mode(int){} void setAutoReconnect(bool enabled){autoReconnect=enabled;} void setHostname(const char*){} bool openAP=false; bool softAP(const char*,const char* password=nullptr){openAP=password==nullptr;return true;} void softAPdisconnect(bool){} void disconnect(bool off,bool erase){++disconnectCalls;radioDisabled=off;credentialsErased=erase;} void begin(const char* ssid,const char*){++beginCalls;lastSSID=ssid;} int status(){return connected?WL_CONNECTED:0;} IP localIP(){return{};} IP softAPIP(){return{};} }; inline WiFiType WiFi;
 inline void configTzTime(const char*,const char*,const char*){}
 struct DNSServer { void start(int,const char*,IP){} void stop(){} void processNextRequest(){} };
 struct Preferences {
