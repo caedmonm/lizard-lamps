@@ -61,6 +61,7 @@ void setup() {
       if (candidate.probesSet) saveConfig(candidate);
     }
   }
+  startHistoryStorage(); // Mount/initialize storage while outputs are still off.
   Mycila::Dimmer::setSemiPeriod(10000); // 50Hz mains
   lamp1.setPin(DimmerPins[0]);
   lamp2.setPin(DimmerPins[1]);
@@ -88,9 +89,6 @@ void loop() {
     memcpy(readingProbes, config.probes, sizeof(readingProbes));
     sensorReadOK = false;
     lastReading = 0;
-    xSemaphoreTake(stateMutex, portMAX_DELAY);
-    temperatureHistory.clear();
-    xSemaphoreGive(stateMutex);
   }
   if (conversionPending && now - conversionStarted >= 750) {
     for (int i = 0; i < 2; ++i)
@@ -111,15 +109,28 @@ void loop() {
   bool online = dimmerReady && pulseAnalyzer.isOnline();
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   bool stopped = maintenance || resetRequested;
+  bool loggingPause = historyMaintenance && !resetRequested;
   xSemaphoreGive(stateMutex);
+  if (loggingPause) {
+    // Preserve controller/fade state through brief log writes; resume the existing ramp.
+    applyPower(0, 0);
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    deviceStatus.power = 0;
+    deviceStatus.lampPower[0] = deviceStatus.lampPower[1] = 0;
+    maintenanceAcknowledged = true;
+    xSemaphoreGive(stateMutex);
+    delay(2);
+    return;
+  }
   bool hardwareHealthy = healthy && online && !stopped;
   bool enabled = config.targetsSet && config.scheduleSet && selected >= 0 && clockValid && healthy && online && !stopped;
   int power = heatingController.update(enabled, selected, temperatures[0], temperatures[1],
-                                       config.targets, config.dimmingEnabled, config.dimmingRange, config.restartDrop);
+                                       config.targets, config.restartDrop);
   Control::FloorDemand floor = minimumController.update(hardwareHealthy, temperatures[0], temperatures[1],
                                                         config.minimumTemperature, enabled && power > 0);
   bool floorActive = hardwareHealthy && floor.mode != Control::FloorMode::Normal;
-  Control::LampOutput output = lampFader.update(enabled && !floorActive, selected, power, millis());
+  Control::LampOutput output = lampFader.update(enabled && !floorActive, selected, power, millis(),
+                                                config.dimmingEnabled ? uint32_t(config.fadeSeconds*1000) : 0);
   int day = floorActive ? floor.day : (output.lamp == 0 ? output.percent : 0);
   int night = floorActive ? floor.night : (output.lamp == 1 ? output.percent : 0);
   applyPower(day, night);
@@ -142,9 +153,6 @@ void loop() {
                                   (activeLamp >= 0 ? config.targets[activeLamp][probe] : NAN);
   if (stopped && power == 0) maintenanceAcknowledged = true;
   deviceStatus.lastReading = lastReading;
-  if (lastReading)
-    temperatureHistory.record(millis(), temperatures[0], temperatures[1],
-                              millis() - lastReading <= Control::StaleAfterMs);
   xSemaphoreGive(stateMutex);
   delay(2);
 }

@@ -7,6 +7,10 @@ trap 'rm -rf "$test_build_dir"' EXIT
 "$test_build_dir/control"
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -pedantic tests/history_test.cpp -o "$test_build_dir/history"
 "$test_build_dir/history"
+"${CXX:-c++}" -std=c++17 -Itests/stubs tests/history_storage_test.cpp -o "$test_build_dir/history-storage"
+"$test_build_dir/history-storage"
+"${CXX:-c++}" -std=c++17 -Itests/stubs tests/history_persistence_test.cpp -o "$test_build_dir/history-persistence"
+"$test_build_dir/history-persistence"
 "${CXX:-c++}" -std=c++17 -Itests/stubs tests/web_test.cpp -o "$test_build_dir/web"
 "$test_build_dir/web" "$test_build_dir"
 "${CXX:-c++}" -std=c++17 -Itests/stubs tests/network_test.cpp -o "$test_build_dir/network"
@@ -22,6 +26,10 @@ for name in ['status-empty','status','connection','config','history']:
     json.loads((root/(name+'.json')).read_text())
 assert json.loads((root/'status-empty.json').read_text())['temperatures']==[None,None]
 assert json.loads((root/'config.json').read_text())['targets']==[[30,24],[20,18]]
-assert json.loads((root/'history.json').read_text())['samples']==[[300,30.0,24.0],[0,None,46.0]]
+history=json.loads((root/'history.json').read_text())
+assert len(history['samples'])==2 and history['intervalSeconds']==60
+assert history['samples'][0][1:]==[30,24,60,0,30,24,20,18]
+assert history['samples'][1][1:]==[None,46,60,0,30,24,20,18]
+assert history['samples'][0][0]-history['samples'][1][0]==60
 print('API JSON responses parse correctly, including missing readings and day/night targets.')
 PY

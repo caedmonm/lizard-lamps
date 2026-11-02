@@ -5,13 +5,13 @@ const ids={};for(const name of ['chart','window','position','reading','detail','
 ids['history-window'].value='6';
 let fail=false,data={samples:[[172800,24,20],[21600,30,22],[18000,null,23],[17700,31,24],[0,29,22]]};
 const calls=[],timers=[];
-vm.runInNewContext(source,{window:{addEventListener(){}},document:{hidden:false,getElementById:id=>ids[id],createElementNS:()=>element()},Date,AbortController,setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length},clearTimeout(){},fetch:async(url,options)=>{calls.push({url,options});return {ok:!fail,status:fail?401:200,json:async()=>data}}});
+vm.runInNewContext(source,{window:{addEventListener(){}},document:{hidden:false,getElementById:id=>ids[id],createElementNS:()=>element(),querySelectorAll:()=>[]},Date,AbortController,setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length},clearTimeout(){},fetch:async(url,options)=>{calls.push({url,options});return {ok:!fail,status:fail?401:200,json:async()=>data}}});
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{
  await flush();assert.equal(calls[0].url,'/api/history');assert.equal(calls[0].options.credentials,'same-origin');
  assert.match(ids['history-detail'].textContent,/Basking: 29.0°C/);assert.equal(ids['history-newer'].disabled,true);
  const paths=()=>ids['history-chart'].children.filter(e=>'d' in e.attrs);
- assert.equal(paths().length,2);assert.equal((paths()[0].attrs.d.match(/M/g)||[]).length,3); // missing data and delayed readings break lines
+ assert.equal(paths().length,8);assert.equal((paths()[0].attrs.d.match(/M/g)||[]).length,3); // missing data and delayed readings break lines
  ids['history-reading'].value='1';ids['history-reading'].events.input();assert.match(ids['history-detail'].textContent,/Basking: unavailable/);
  ids['history-older'].events.click();assert.equal(ids['history-newer'].disabled,false);assert.equal(ids['history-latest'].disabled,false);
  ids['history-latest'].events.click();assert.equal(ids['history-newer'].disabled,true);

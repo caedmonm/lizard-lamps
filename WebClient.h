@@ -47,8 +47,8 @@ const char WebClient[] PROGMEM = R"JS(
     });
   }
   document.querySelectorAll('[data-dimming-toggle]').forEach(toggle=>{
-    const range=toggle.form.querySelector('[data-dimming-range]'),drop=toggle.form.querySelector('[data-restart-drop]');
-    const update=()=>{range.hidden=toggle.value!=='1';drop.hidden=toggle.value==='1';range.querySelector('input').disabled=range.hidden;drop.querySelector('input').disabled=drop.hidden};
+    const range=toggle.form.querySelector('[data-fade-duration]'),drop=toggle.form.querySelector('[data-restart-drop]');
+    const update=()=>{range.hidden=toggle.value!=='1';drop.hidden=false;range.querySelector('input').disabled=range.hidden;drop.querySelector('input').disabled=false};
     toggle.addEventListener('change',update);update();
   });
   document.querySelectorAll('[data-admin-toggle]').forEach(toggle=>{

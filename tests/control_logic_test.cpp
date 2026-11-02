@@ -29,65 +29,55 @@ int main() {
       assert(firstMinutes == (second - first + 1440) % 1440);
     }
   }
-  assert(power(19, 19, 19, 19) == 0);
-  assert(power(20, 20, 19, 19) == 0);
-  assert(power(18.5, 19, 19, 19) == 17);
-  assert(power(19, 17, 19, 19) == 67);
-  assert(power(10, 19, 19, 19) == 100);
-  assert(power(19, 10, 19, 19) == 100);
-  assert(power(-127, 19, 19, 19) == 0);
-  assert(power(std::numeric_limits<float>::quiet_NaN(), 19, 19, 19) == 0);
-  assert(power(45, 10, 19, 19) == 0);
-  assert(power(85, 10, 19, 19) == 0);
-  assert(power(19, 10, std::numeric_limits<float>::infinity(), 19) == 0);
   assert(!validTarget(4.9f) && !validTarget(40.1f));
   assert(validTarget(5) && validTarget(40));
-  float dayNightTargets[2][2] = {{30, 25}, {20, 18}};
-  assert(periodPower(scheduledLamp(419, 420, 1140), 28, 24, dayNightTargets) == 0);
-  assert(periodPower(scheduledLamp(420, 420, 1140), 28, 24, dayNightTargets) == 67);
-  assert(periodPower(scheduledLamp(1140, 420, 1140), 28, 24, dayNightTargets) == 0);
-  assert(periodPower(1, 18, 17, dayNightTargets) == 67);
-  assert(periodPower(-1, 18, 17, dayNightTargets) == 0);
-  assert(power(28, 25, 30, 25, 4) == 50);
-  assert(power(28, 25, 30, 25, 2) == 100);
-  assert(power(28, 25, 30, 25, 0) == 0);
+  float dayNightTargets[2][2]={{30,25},{20,18}};
   HeatingController controller;
-  auto demand = [&](float basking, float ambient, bool enabled = true, int period = 0,
-                    bool dimming = false, float range = 3, float drop = 2) {
-    return controller.update(enabled, period, basking, ambient, dayNightTargets, dimming, range, drop);
+  auto demand=[&](float basking,float ambient,bool enabled=true,int period=0,float drop=2) {
+    return controller.update(enabled,period,basking,ambient,dayNightTargets,drop);
   };
-  // Startup waits for the restart threshold, then retains full output through the band.
-  assert(demand(29, 25) == 0);
-  assert(demand(28, 25) == 100);
-  assert(demand(29.9f, 25) == 100);
-  assert(demand(30, 24) == 100); // Ambient still requests heat.
-  assert(demand(30, 25) == 0);
-  assert(demand(29, 24) == 0);
-  assert(demand(30, 23) == 100); // Either probe can restart heating.
-  assert(demand(31, 26) == 0);
-  assert(demand(28, 25) == 100);
-  assert(demand(45, 25) == 0);
-  assert(demand(29, 25) == 0); // Fault clears the previous on state.
-  assert(demand(28, 25) == 100);
-  assert(demand(29, 25, false) == 0);
-  assert(demand(29, 25) == 0);
-  assert(demand(28, 25) == 100);
-  assert(demand(19, 18, true, 1) == 0); // New period starts from off.
-  assert(demand(18, 18, true, 1) == 100);
-  assert(demand(19.5f, 18, true, 1) == 100);
-  assert(demand(19.5f, 18, true, 1, false, 3, 1) == 0); // Settings clear the latch.
-  assert(demand(19, 18, true, 1, false, 3, 1) == 100);
-  dayNightTargets[1][0] = 19.5f;
-  assert(demand(19, 18, true, 1, false, 3, 1) == 0); // Target edits clear it too.
-  assert(demand(28, 25, true, 0, true, 4) == 50);
-  assert(demand(29, 25) == 0); // Returning to on/off does not inherit dimming demand.
-  assert(demand(28, 25) == 100);
-  assert(demand(28, NAN) == 0);
-  assert(demand(28, 25, true, -1) == 0);
-  assert(demand(28, 25, true, 0, false, NAN) == 0);
+  assert(demand(29.9f,25)==100); // Even a tiny startup deficit reaches the target.
+  assert(demand(30,24.9f)==100); // Both probes must reach target.
+  assert(demand(30,25)==0);
+  assert(demand(29.9f,24.9f)==0); // Restart hysteresis prevents chatter.
+  assert(demand(28.01f,25)==0);
+  assert(demand(28,25)==100); // Exact restart boundary.
+  assert(demand(29.99f,25)==100); // Full demand right up to target.
+  assert(demand(31,26)==0);
+  assert(demand(30,23)==100); // Ambient can restart heating.
+  for (float bad : {NAN,INFINITY,-127.0f,45.0f,85.0f}) {
+    assert(demand(bad,25)==0);assert(demand(29.9f,25)==100);
+    assert(demand(30,bad)==0);assert(demand(29.9f,25)==100);
+  }
+  assert(demand(29,25,false)==0);assert(demand(29,25)==100);
+  assert(demand(19.9f,18,true,1)==100); // New period reaches its own targets.
+  assert(demand(20,18,true,1)==0);
+  assert(demand(19,18,true,1,1)==100); // Configured restart drop.
+  dayNightTargets[1][0]=19;
+  assert(demand(19,18,true,1,1)==0);
+  dayNightTargets[1][0]=19.1f;
+  assert(demand(19,18,true,1,1)==100); // New target takes effect immediately.
+  assert(demand(29,25,true,-1)==0);
+  assert(demand(29,25,true,0,NAN)==0);
+  assert(demand(29,25,true,0,0)==0);
+  assert(validFadeSeconds(0.1f)&&validFadeSeconds(300));
+  for (float bad : {NAN,INFINITY,0.0f,300.1f}) assert(!validFadeSeconds(bad));
+  // Configurable smoothing: default one second, half-second midpoint, immediate fault off.
+  LampFader defaults;
+  defaults.update(true,0,100,0);defaults.update(true,0,100,20);
+  assert(defaults.update(true,0,100,520).percent==50);
+  assert(defaults.update(true,0,100,1020).percent==100);
+  defaults.update(true,0,0,1020);
+  assert(defaults.update(true,0,0,1520).percent==50);
+  assert(defaults.update(false,0,0,1521).percent==0);
+  LampFader instant;
+  instant.update(true,0,100,0,0);
+  assert(instant.update(true,0,100,20,0).percent==100);
+  assert(instant.update(true,0,0,21,0).percent==0);
+  // Existing ten-second cases exercise a custom duration and repeated-loop deadlines.
   LampFader fader;
   auto fade = [&](int selected, int demand, uint32_t now, bool enabled = true) {
-    return fader.update(enabled, selected, demand, now);
+    return fader.update(enabled, selected, demand, now, 10000);
   };
   assert(fade(0, 100, 0).percent == 0);
   assert(fade(0, 100, 19).lamp == -1);
@@ -113,15 +103,15 @@ int main() {
   assert(fade(1, 80, 50040).percent == 80);
   // Reverse switch also keeps the outgoing channel exclusive until it is off.
   LampFader reverse;
-  reverse.update(true, 1, 100, 0);
-  reverse.update(true, 1, 100, 20);
-  assert(reverse.update(true, 1, 100, 10020).percent == 100);
-  reverse.update(true, 0, 60, 10020);
-  auto reverseOutgoing = reverse.update(true, 0, 60, 15020);
+  reverse.update(true, 1, 100, 0, 10000);
+  reverse.update(true, 1, 100, 20, 10000);
+  assert(reverse.update(true, 1, 100, 10020, 10000).percent == 100);
+  reverse.update(true, 0, 60, 10020, 10000);
+  auto reverseOutgoing = reverse.update(true, 0, 60, 15020, 10000);
   assert(reverseOutgoing.lamp == 1 && reverseOutgoing.percent == 50);
-  assert(reverse.update(true, 0, 60, 20020).lamp == -1);
-  reverse.update(true, 0, 60, 20040);
-  auto reverseIncoming = reverse.update(true, 0, 60, 30040);
+  assert(reverse.update(true, 0, 60, 20020, 10000).lamp == -1);
+  reverse.update(true, 0, 60, 20040, 10000);
+  auto reverseIncoming = reverse.update(true, 0, 60, 30040, 10000);
   assert(reverseIncoming.lamp == 0 && reverseIncoming.percent == 60);
   // A reversal resumes smoothly from the current output without switching lamps.
   fade(0, 100, 50040);
@@ -135,10 +125,10 @@ int main() {
   assert(fade(1, 101, 60043).percent == 0);
   // Millisecond rollover during both the settling gap and a ramp.
   LampFader rollover;
-  rollover.update(true, 0, 100, UINT32_MAX - 10);
-  assert(rollover.update(true, 0, 100, 9).percent == 0);
-  assert(rollover.update(true, 0, 100, 5009).percent == 50);
-  assert(rollover.update(true, 0, 100, 10009).percent == 100);
+  rollover.update(true, 0, 100, UINT32_MAX - 10, 10000);
+  assert(rollover.update(true, 0, 100, 9, 10000).percent == 0);
+  assert(rollover.update(true, 0, 100, 5009, 10000).percent == 50);
+  assert(rollover.update(true, 0, 100, 10009, 10000).percent == 100);
   MinimumTemperatureController floor;
   auto protect = [&](float basking, float ambient, bool hardware = true, bool schedule = false) {
     return floor.update(hardware, basking, ambient, 15, schedule);

@@ -32,3 +32,13 @@ bool saveConfig(const DeviceConfig& config);
 void startDeviceWeb();
 
 extern TemperatureHistory temperatureHistory;
+
+// Flash maintenance is serialized on the web task. Only the controller owns outputs.
+extern bool historyMaintenance;
+extern bool historyStorageReady;
+extern bool historyStorageHealthy;
+bool beginFlashMaintenance(bool forHistory = false);
+void endFlashMaintenance();
+void startHistoryStorage();
+void serviceTemperatureHistory();
+bool eraseTemperatureHistory();

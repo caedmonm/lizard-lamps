@@ -13,7 +13,7 @@ int main() {
   old.targetsSet=old.scheduleSet=old.probesSet=true;
   for(int probe=0;probe<2;++probe){old.probes[probe][0]=0x28;old.probes[probe][1]=probe+1;old.probes[probe][7]=OneWire::crc8(old.probes[probe],7);}
   store(old);assert(loadConfig());
-  assert(deviceConfig.version==4&&deviceConfig.scheduleSet&&deviceConfig.targetsSet);
+  assert(deviceConfig.version==5&&deviceConfig.scheduleSet&&deviceConfig.targetsSet);
   assert(!strcmp(deviceConfig.ssid,old.ssid)&&!strcmp(deviceConfig.wifiPassword,old.wifiPassword)&&!strcmp(deviceConfig.adminPassword,old.adminPassword));
   assert(!memcmp(deviceConfig.probes,old.probes,sizeof(old.probes)));
   assert(deviceConfig.starts[0]==480&&deviceConfig.starts[1]==1200);
@@ -35,21 +35,21 @@ int main() {
   previous.starts[0]=500;previous.starts[1]=1100;
   previous.targetsSet=previous.scheduleSet=previous.probesSet=true;
   store(previous);assert(loadConfig());
-  assert(deviceConfig.version==4&&deviceConfig.dimmingEnabled&&deviceConfig.dimmingRange==3&&deviceConfig.restartDrop==2);
+  assert(deviceConfig.version==5&&deviceConfig.dimmingEnabled&&deviceConfig.fadeSeconds==1&&deviceConfig.restartDrop==2);
   assert(!memcmp(deviceConfig.targets,previous.targets,sizeof(previous.targets)));
   assert(!memcmp(deviceConfig.probes,previous.probes,sizeof(previous.probes)));
   assert(!strcmp(deviceConfig.ssid,previous.ssid)&&!strcmp(deviceConfig.wifiPassword,previous.wifiPassword)&&!strcmp(deviceConfig.adminPassword,previous.adminPassword));
   assert(!memcmp(deviceConfig.starts,previous.starts,sizeof(previous.starts)));
-  deviceConfig.dimmingEnabled=false;deviceConfig.dimmingRange=4.5f;deviceConfig.restartDrop=1.5f;
+  deviceConfig.dimmingEnabled=false;deviceConfig.fadeSeconds=4.5f;deviceConfig.restartDrop=1.5f;
   assert(saveConfig(deviceConfig));deviceConfig=DeviceConfig{};assert(loadConfig());
-  assert(!deviceConfig.dimmingEnabled&&deviceConfig.dimmingRange==4.5f&&deviceConfig.restartDrop==1.5f);
+  assert(!deviceConfig.dimmingEnabled&&deviceConfig.fadeSeconds==4.5f&&deviceConfig.restartDrop==1.5f);
   LegacyDeviceConfigV3 v3;
   v3.targetsSet = v3.scheduleSet = true;
   v3.dimmingEnabled = false; v3.dimmingRange = 4; v3.restartDrop = 1.5f;
   v3.targets[0][0] = 32; strcpy(v3.ssid, "Legacy network");
   store(v3); assert(loadConfig());
-  assert(deviceConfig.version == 4 && deviceConfig.minimumTemperature == 15);
-  assert(!deviceConfig.dimmingEnabled && deviceConfig.dimmingRange == 4 && deviceConfig.restartDrop == 1.5f);
+  assert(deviceConfig.version == 5 && deviceConfig.minimumTemperature == 15);
+  assert(!deviceConfig.dimmingEnabled && deviceConfig.fadeSeconds == 1 && deviceConfig.restartDrop == 1.5f);
   assert(deviceConfig.targets[0][0] == 32 && !strcmp(deviceConfig.ssid, v3.ssid));
   deviceConfig.minimumTemperature = 17.5f; assert(saveConfig(deviceConfig));
   deviceConfig = DeviceConfig{}; assert(loadConfig()); assert(deviceConfig.minimumTemperature == 17.5f);
@@ -57,7 +57,12 @@ int main() {
     DeviceConfig invalidMinimum = deviceConfig; invalidMinimum.minimumTemperature = bad;
     assert(!saveConfig(invalidMinimum)); store(invalidMinimum); assert(!loadConfig());
   }
-  DeviceConfig badRange=deviceConfig;badRange.dimmingRange=0;assert(!saveConfig(badRange));
+  LegacyDeviceConfigV4 v4;
+  memcpy(v4.ssid,deviceConfig.ssid,sizeof(v4.ssid));
+  v4.dimmingRange=7;v4.restartDrop=1.5;v4.minimumTemperature=17;
+  store(v4);assert(loadConfig());
+  assert(deviceConfig.version==5&&deviceConfig.fadeSeconds==1&&deviceConfig.restartDrop==1.5&&deviceConfig.minimumTemperature==17);
+  DeviceConfig badRange=deviceConfig;badRange.fadeSeconds=0;assert(!saveConfig(badRange));
   badRange=deviceConfig;badRange.restartDrop=NAN;store(badRange);assert(!loadConfig());
   badRange=deviceConfig;badRange.restartDrop=11;assert(!saveConfig(badRange));
   previous.version=99;store(previous);assert(!loadConfig());

@@ -3,6 +3,9 @@
 DeviceConfig deviceConfig;
 DeviceStatus deviceStatus;
 TemperatureHistory temperatureHistory;
+bool historyStorageHealthy=true;
+void serviceTemperatureHistory(){}
+bool eraseTemperatureHistory(){temperatureHistory.clear();return true;}
 SemaphoreHandle_t stateMutex = 1;
 bool maintenance=false, maintenanceAcknowledged=false, controllerRunning=false, resetRequested=false;
 DeviceConfig configSnapshot(){return deviceConfig;}

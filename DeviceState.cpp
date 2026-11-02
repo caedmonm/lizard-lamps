@@ -7,6 +7,7 @@ DeviceStatus deviceStatus;
 TemperatureHistory temperatureHistory;
 SemaphoreHandle_t stateMutex;
 bool maintenance = false;
+bool historyMaintenance = false;
 bool maintenanceAcknowledged = false;
 bool controllerRunning = false;
 bool resetRequested = false;
@@ -30,6 +31,12 @@ bool loadConfig() {
   bool migrated = false, found = false;
   if (length == sizeof(candidate)) {
     found = prefs.getBytes("config", &candidate, sizeof(candidate)) == sizeof(candidate);
+    if (found && candidate.version == 4) {
+      LegacyDeviceConfigV4 old;
+      memcpy(&old,&candidate,sizeof(old));
+      candidate=migrateLegacyConfig(old);
+      migrated=true;
+    }
   } else if (length == sizeof(LegacyDeviceConfigV3)) {
     LegacyDeviceConfigV3 old;
     found = prefs.getBytes("config", &old, sizeof(old)) == sizeof(old);
@@ -57,11 +64,11 @@ bool loadConfig() {
   if (migrated && !saveConfig(candidate)) Serial.println("Configuration upgrade could not be saved; it will retry on reboot");
   return true;
 }
-bool saveConfig(const DeviceConfig& candidate) {
-  if (!validConfig(candidate)) return false;
+bool beginFlashMaintenance(bool forHistory) {
   // Hold the outputs off while flash is written; only the control loop owns dimmer hardware.
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   maintenance = true;
+  historyMaintenance = forHistory;
   maintenanceAcknowledged = false;
   xSemaphoreGive(stateMutex);
   // Wait for the controller to acknowledge zero output before touching flash.
@@ -74,11 +81,22 @@ bool saveConfig(const DeviceConfig& candidate) {
     if (millis() - started > 1000) {
       xSemaphoreTake(stateMutex, portMAX_DELAY);
       maintenance = false;
+      historyMaintenance = false;
       xSemaphoreGive(stateMutex);
       return false;
     }
     delay(2);
   }
+  return true;
+}
+void endFlashMaintenance() {
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  maintenance = false;
+  historyMaintenance = false;
+  xSemaphoreGive(stateMutex);
+}
+bool saveConfig(const DeviceConfig& candidate) {
+  if (!validConfig(candidate) || !beginFlashMaintenance()) return false;
   Preferences prefs;
   bool saved = prefs.begin("lizard", false);
   if (saved) {
@@ -87,7 +105,7 @@ bool saveConfig(const DeviceConfig& candidate) {
   }
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   if (saved) deviceConfig = candidate;
-  maintenance = false;
   xSemaphoreGive(stateMutex);
+  endFlashMaintenance();
   return saved;
 }
