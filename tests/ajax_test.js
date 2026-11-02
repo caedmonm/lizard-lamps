@@ -9,11 +9,11 @@ function fixture(connecting=false,admin=false,control=false){
  const button={disabled:false},form={action:'http://device/schedule',dataset:{},fields:{csrf:'token'},getAttribute:()=>'/schedule',querySelectorAll:s=>s==='button'?[button]:[],addEventListener:(name,fn)=>{form.submit=fn}};
  const password={value:'',disabled:false,required:false},current={value:'0'},toggle={checked:false,form,addEventListener:(name,fn)=>{toggle.change=fn}};
  if(admin){form.action='http://device/admin';form.getAttribute=()=>'/admin';form.querySelector=s=>s==='[data-admin-password]'?password:current;}
- const rangeInput={disabled:false},dropInput={disabled:false},range={hidden:false,querySelector:()=>rangeInput},drop={hidden:false,querySelector:()=>dropInput},dimmingToggle={value:'1',form,addEventListener:(name,fn)=>{dimmingToggle.change=fn}};
- if(control){form.action='http://device/control';form.getAttribute=()=>'/control';form.querySelector=s=>s==='[data-fade-duration]'?range:drop;form.fields={csrf:'token',dimmingEnabled:'1',fadeSeconds:'3',restartDrop:'2',minimumTemperature:'17.5'};}
+ const rangeInput={disabled:false},range={hidden:false,querySelector:()=>rangeInput},dimmingToggle={value:'1',form,addEventListener:(name,fn)=>{dimmingToggle.change=fn}};
+ if(control){form.action='http://device/control';form.getAttribute=()=>'/control';form.querySelector=()=>range;form.fields={csrf:'token',dimmingEnabled:'1',fadeSeconds:'3',proportionalBand:'2',integralSeconds:'300',minimumTemperature:'17.5'};}
  let fail=false,adminResponse={ok:true,adminProtected:false,reauthenticate:false};const calls=[],timers=[],navigations=[];
- const context={document:{hidden:false,getElementById:id=>ids[id],querySelectorAll:s=>s==='[data-dimming-toggle]'?(control?[dimmingToggle]:[]):s==='[data-admin-toggle]'?(admin?[toggle]:[]):s==='form'?[form]:s==='[data-temperature]'?temps:s==='[data-target]'?targets:[]},location:{href:'http://device/',assign:url=>navigations.push(url)},URL,URLSearchParams,AbortController,Date,FormData:class{*[Symbol.iterator](){for(const [key,value] of Object.entries(form.fields)){if(control&&((key==='fadeSeconds'&&rangeInput.disabled)||(key==='restartDrop'&&dropInput.disabled)))continue;yield [key,value]}}},setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length},clearTimeout:()=>{},fetch:async(url,options)=>{calls.push({url,options});if(fail)throw new Error('Offline');return {ok:true,status:200,json:async()=>url==='/api/status'?status:url==='/api/connection'?{connected:true,ssid:'Home',ip:'192.168.1.84'}:url==='/api/config'?{probes:['a','b'],starts:['07:00','19:00']}:admin?adminResponse:{ok:true,next:'/?view=monitor'}}}};
- vm.runInNewContext(source,context);return{rangeInput,dropInput,range,drop,dimmingToggle,ids,temps,targets,form,button,calls,timers,password,current,toggle,navigations,setAdminResponse:value=>{adminResponse=value},setFail:()=>{fail=true}};
+ const context={document:{hidden:false,getElementById:id=>ids[id],querySelectorAll:s=>s==='[data-dimming-toggle]'?(control?[dimmingToggle]:[]):s==='[data-admin-toggle]'?(admin?[toggle]:[]):s==='form'?[form]:s==='[data-temperature]'?temps:s==='[data-target]'?targets:[]},location:{href:'http://device/',assign:url=>navigations.push(url)},URL,URLSearchParams,AbortController,Date,FormData:class{*[Symbol.iterator](){for(const [key,value] of Object.entries(form.fields)){if(control&&(key==='fadeSeconds'&&rangeInput.disabled))continue;yield [key,value]}}},setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length},clearTimeout:()=>{},fetch:async(url,options)=>{calls.push({url,options});if(fail)throw new Error('Offline');return {ok:true,status:200,json:async()=>url==='/api/status'?status:url==='/api/connection'?{connected:true,ssid:'Home',ip:'192.168.1.84'}:url==='/api/config'?{probes:['a','b'],starts:['07:00','19:00']}:admin?adminResponse:{ok:true,next:'/?view=monitor'}}}};
+ vm.runInNewContext(source,context);return{rangeInput,range,dimmingToggle,ids,temps,targets,form,button,calls,timers,password,current,toggle,navigations,setAdminResponse:value=>{adminResponse=value},setFail:()=>{fail=true}};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{
@@ -26,6 +26,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
  status.floorMode=2;const hold=fixture();await flush();assert.equal(hold.ids['active-period'].textContent,'Minimum hold · Night lamp');assert.equal(hold.ids['heating-fault'].hidden,true);
  status.sensorsHealthy=false;const fault=fixture();await flush();assert.equal(fault.ids['heating-fault'].hidden,false);
  status.sensorsHealthy=true;status.clockValid=true;status.configured=true;status.floorMode=0;
+ status.targetLimited=true;const cooling=fixture();await flush();assert.equal(cooling.ids['power-state'].textContent,'Cooling down');status.targetLimited=false;
  const c=fixture(true);await flush();assert.equal(c.ids['connection-title'].textContent,"You're connected.");assert.equal(c.ids['connection-waiting'].hidden,true);assert.equal(c.ids['connection-success'].hidden,false);
  const a=fixture(false,true);await flush();assert.equal(a.password.disabled,true);assert.equal(a.password.required,false);
  a.toggle.checked=true;a.toggle.change();assert.equal(a.password.disabled,false);assert.equal(a.password.required,true);
@@ -34,12 +35,12 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
  assert.equal(a.current.value,'0');assert.equal(a.password.value,'');assert.equal(a.password.disabled,true);
  a.toggle.checked=true;a.toggle.change();assert.equal(a.password.required,true);
  a.setAdminResponse({ok:true,adminProtected:true,reauthenticate:true});await a.form.submit({preventDefault(){}});assert.deepEqual(a.navigations,['/']);assert.equal(a.button.disabled,false);
- const heating=fixture(false,false,true);await flush();assert.equal(heating.range.hidden,false);assert.equal(heating.drop.hidden,false);assert.equal(heating.dropInput.disabled,false);assert.equal(heating.rangeInput.disabled,false);
- heating.dimmingToggle.value='0';heating.dimmingToggle.change();assert.equal(heating.range.hidden,true);assert.equal(heating.drop.hidden,false);assert.equal(heating.dropInput.disabled,false);assert.equal(heating.rangeInput.disabled,true);
+ const heating=fixture(false,false,true);await flush();assert.equal(heating.range.hidden,false);assert.equal(heating.rangeInput.disabled,false);
+ heating.dimmingToggle.value='0';heating.dimmingToggle.change();assert.equal(heating.range.hidden,true);assert.equal(heating.rangeInput.disabled,true);
  heating.form.fields.dimmingEnabled='0';await heating.form.submit({preventDefault(){}});
- const saved=heating.calls.find(c=>c.url==='/api/control');assert.equal(saved.options.body.get('dimmingEnabled'),'0');assert.equal(saved.options.body.get('restartDrop'),'2');assert.equal(saved.options.body.get('fadeSeconds'),null);
- assert.equal(saved.options.body.get('minimumTemperature'),'17.5');
+ const saved=heating.calls.find(c=>c.url==='/api/control');assert.equal(saved.options.body.get('dimmingEnabled'),'0');assert.equal(saved.options.body.get('proportionalBand'),'2');assert.equal(saved.options.body.get('fadeSeconds'),null);
+ assert.equal(saved.options.body.get('minimumTemperature'),'17.5');assert.equal(saved.options.body.get('integralSeconds'),'300');
  assert(heating.calls.some(c=>c.url==='/api/config'));assert.equal(heating.button.disabled,false);
- heating.dimmingToggle.value='1';heating.dimmingToggle.change();assert.equal(heating.range.hidden,false);assert.equal(heating.drop.hidden,false);assert.equal(heating.dropInput.disabled,false);assert.equal(heating.rangeInput.disabled,false);
+ heating.dimmingToggle.value='1';heating.dimmingToggle.change();assert.equal(heating.range.hidden,false);assert.equal(heating.rangeInput.disabled,false);
  console.log('AJAX polling, DOM updates, period changes, form saves, errors and connection progress passed with mocks.');
 })().catch(error=>{console.error(error);process.exitCode=1});

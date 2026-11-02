@@ -36,6 +36,7 @@ const char WebHistory[] PROGMEM = R"JS(
     chartWidth=Math.max(300,chart.getBoundingClientRect().width);
     chart.setAttribute('viewBox','0 0 '+chartWidth+' 280');
     const span=duration();end=Math.max(anchor-retention+span,Math.min(anchor,end));
+    latest=end===anchor;
     const start=end-span;
     position.max=(retention-span)/60000;position.value=Math.round((start-(anchor-retention))/60000);
     position.disabled=span===retention;

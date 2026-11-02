@@ -31,12 +31,15 @@ bool loadConfig() {
   bool migrated = false, found = false;
   if (length == sizeof(candidate)) {
     found = prefs.getBytes("config", &candidate, sizeof(candidate)) == sizeof(candidate);
-    if (found && candidate.version == 4) {
-      LegacyDeviceConfigV4 old;
-      memcpy(&old,&candidate,sizeof(old));
-      candidate=migrateLegacyConfig(old);
-      migrated=true;
-    }
+  } else if (length == sizeof(LegacyDeviceConfigV5)) {
+    LegacyDeviceConfigV5 old;
+    found = prefs.getBytes("config", &old, sizeof(old)) == sizeof(old);
+    if (old.version == 4) {
+      LegacyDeviceConfigV4 v4;
+      memcpy(&v4, &old, sizeof(v4));
+      candidate = migrateLegacyConfig(v4);
+    } else candidate = migrateLegacyConfig(old);
+    migrated = true;
   } else if (length == sizeof(LegacyDeviceConfigV3)) {
     LegacyDeviceConfigV3 old;
     found = prefs.getBytes("config", &old, sizeof(old)) == sizeof(old);

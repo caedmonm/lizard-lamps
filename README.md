@@ -9,7 +9,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 - Open Wi-Fi setup hotspot (no password) with a captive-portal DNS redirect.
 - Local dashboard showing **basking spot** and **ambient** temperatures, targets, selected lamp, requested power, connectivity and faults.
 - Two daily start times for switching between lamp 1 and lamp 2, including periods spanning midnight.
-- Independent day and night basking/ambient targets, with adjustable dimming or full-on/full-off heating on the selected lamp.
+- Independent day and night basking/ambient targets, with continuous proportional–integral (PI) regulation of the selected lamp.
 - Configurable minimum-temperature protection: the night lamp heats the basking spot, with day assistance only at least 5°C below the minimum, and maintains the floor without Wi-Fi or wall time.
 - Persistent Wi-Fi details, dashboard password, targets, schedule, heating control settings and fixed probe addresses.
 - Probe label swapping, Wi-Fi recovery after disconnection and a confirmed factory reset.
@@ -46,13 +46,19 @@ Identify your physical probes by their readings and displayed OneWire addresses.
 
 The schedule repeats daily in **Europe/London** local time. Lamp 1 runs from its start time until lamp 2's start time; lamp 2 runs until lamp 1 starts again. Start times must differ. For example, 07:00 / 19:00 selects lamp 1 during the day and lamp 2 overnight. Reversing those times makes lamp 1 cover the overnight period.
 
-During normal scheduled heating, only the selected lamp receives a nonzero power command. It requests **100% until both active probe targets have been reached**, then requests 0%. Power no longer reduces as temperature approaches the target. On initial startup, after a fault, or when the period/targets change, any deficit starts heating. After reaching the targets, heating restarts when **either** probe falls by the configured **Restart temperature drop** (default 2°C; range 0.1–10°C). For example, a 30°C target with a 2°C drop restarts at 28°C.
+During normal scheduled heating, only the selected lamp receives power. A **proportional–integral (PI) controller follows whichever probe is furthest below its own target**. It supplies more heat when cold, reduces power as the last target approaches, and learns the holding power needed to replace ongoing heat loss. It can keep supplying partial power when that last target is reached instead of waiting for a 2°C drop. The controlling probe can change as the enclosure warms. One lamp cannot independently hold two temperatures: the probe that reaches its target first may run warmer while the other catches up. Either probe still stops heating on a fault or at 45°C.
 
-**Settings → Heating control** offers **Fade output changes** and a **Fade duration** in seconds. The default is **1 second**, configurable from 0.1 to 300 seconds. Fading applies when heating starts and when it stops after reaching the targets. Turning fading off applies scheduled demand immediately. A changed demand starts a new timed ramp from the current output; the ramp does not depend on temperature deficit.
+**Settings → Heating control** provides:
 
-On day/night changes, the outgoing lamp fades to off, both outputs stay off for a 20ms settling period, then the incoming lamp fades up using the same duration. Normal transitions never overlap. Minimum-temperature protection bypasses fades and may intentionally use both lamps. Faults/reset/configuration writes request immediate off. Each period has its own basking and ambient targets; switching periods changes both targets together.
+- **Proportional band**: default **3°C**, range 1–10°C. With no learned holding power, a largest deficit of 3°C requests 100%, 1.5°C requests 50%, and 0.5°C requests about 17%. Learned holding power is added to that response. A wider band reduces the response to a temperature change.
+- **Holding adjustment time**: default **300 seconds**, range 60–3600 seconds. This sets how slowly holding power adapts to persistent error. Increase it if the temperature repeatedly overshoots. These defaults are starting values; the enclosure and installed lamps need physical tuning.
+- **Fade output changes** and **Fade duration**: default **1 second**, range 0.1–300 seconds. Changes ramp from the current output to the requested percentage. Turning fading off applies PI demand immediately; it does not select on/off temperature control. Long fades add control delay, so start with the default.
 
-Heating after reaching a target can still cause some overshoot because of thermal inertia. These settings do not predict stored heat or guarantee exact temperature regulation.
+The calculation uses fresh conversion timestamps rather than loop frequency. Integral demand is bounded and cannot build up during saturated full-power heating or while a rising fade has not caught up. A fault, settings write, period/target/tuning change, or stale sample gap clears learned demand. Minimum protection also clears it. Brief history writes preserve holding power and skip integration during the pause. This follows the conditional-integration approach to [preventing integral windup](https://www.mathworks.com/help/simulink/slref/anti-windup-control-using-a-pid-controller.html).
+
+If **both probes are at least 1°C above their respective targets**, scheduled output stops immediately, bypassing the fade and discarding learned demand. The dashboard shows **Cooling down**. This is a command cutoff, not a guarantee against overshoot from stored heat. One warm probe does not cut off the other probe's heat demand below the fixed 45°C limit. Minimum-temperature protection retains priority if the configured floor exceeds scheduled targets; choose compatible settings.
+
+On day/night changes, the outgoing lamp fades to off, both outputs stay off for a 20ms settling period, then the incoming lamp fades up. If both new targets are already exceeded by 1°C, output stops immediately. Normal transitions never overlap. Minimum-temperature protection bypasses fades and may intentionally use both lamps. Faults/reset/configuration writes request immediate off. Each period has its own basking and ambient targets.
 
 ### Minimum safe temperature
 
@@ -60,14 +66,14 @@ Heating after reaching a target can still cause some overshoot because of therma
 
 Only the **basking spot probe** controls minimum-temperature demand. Below the minimum, the **night lamp immediately requests 100%**, bypassing normal fades and the schedule. The **day lamp also requests 100% only while basking is at least 5°C below the minimum** (including exactly 5°C); it switches off as soon as basking rises above that threshold. For example, with a 20°C minimum, both lamps run at 15°C or below, and night alone runs above 15°C until basking reaches 20°C. Ambient temperature does not trigger, prolong or release minimum heating.
 
-When normal scheduled heating has no demand (including its on/off restart band), or a clock/schedule is unavailable, the **night lamp alone** maintains the floor: on when basking reaches the minimum, off at minimum + 0.5°C. Normal scheduled heating resumes whenever it requests heat after basking recovers to the minimum; the floor never lowers its targets. Both probes still participate in normal scheduled control and fault shutdown.
+When normal scheduled heating has no demand, or a clock/schedule is unavailable, the **night lamp alone** maintains the floor: on when basking reaches the minimum, off at minimum + 0.5°C. Normal scheduled heating resumes whenever it requests heat after basking recovers to the minimum; the floor never lowers its targets. Both probes still participate in normal scheduled control and fault shutdown.
 
 
 This guard operates locally without Wi-Fi, NTP or a browser, after the first healthy readings and valid zero-cross detection, including before schedule setup. Missing/invalid/stale probes, either probe reaching 45°C, unavailable zero-cross detection, maintenance and reset still command both lamps off. A stopped processor, absent mains supply or failed lamp cannot be corrected by this software.
 
 The overview labels **Minimum recovery · Both lamps** and **Minimum hold · Night lamp**, and displays the minimum as the basking target during floor protection; ambient has no floor target. Requested power is the greater of the two channel requests, not their sum; the status API also reports each channel separately.
 
-The sketch rounds output to whole percentages and enables Mycila's power lookup table. Intermediate percentages occur during timed fades. Requested power is not measured electrical wattage.
+The sketch rounds output to whole percentages and enables Mycila's power lookup table. Intermediate percentages are used for temperature regulation and timed fades. Requested power is not measured electrical wattage.
 
 Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off immediately, bypassing fades. Maintenance and factory reset also stop heating immediately. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
 
@@ -77,10 +83,9 @@ DST behavior is based on the current wall-clock period: spring skips nonexistent
 
 ## Upgrading existing devices
 
-Saved configurations migrate to v5. Wi-Fi credentials, password protection, probe identities, targets, start times, restart drop and minimum temperature are preserved. The former temperature dimming range is replaced by a **1-second fade duration**. The previous dimming toggle now enables/disables time-based fading. Review the new behavior before using the upgraded controller.
+Saved configurations v1–v5 migrate to **v6**. Wi-Fi credentials, dashboard password protection, probe identities, targets, start times and the minimum floor are retained. The former restart drop is retired and replaced by a **3°C proportional band** and **300-second holding adjustment time**. Version 5 fade settings are preserved. Earlier versions use a 1-second fade, preserving the prior toggle. Versions 1–3 receive the 15°C minimum default; v1 shared targets are copied to both periods. Incomplete setup still requires the combined schedule form.
 
-Saved settings from configuration versions 1–3 are migrated automatically. The minimum defaults to 15°C; existing Wi-Fi credentials, dashboard password, switch times, probe mappings and targets are preserved. Version 3 retains its chosen dimming mode and ranges. Versions 1–2 default to dimming on with a 3°C range and a 2°C restart drop. Version 1's shared basking/ambient targets are copied into both periods. Edit **Schedule & temps** to choose different temperatures for each period. Incomplete previous setup still requires the combined form for scheduled heating; minimum-temperature protection remains available.
-
+Learned holding power is kept only in RAM and resets on reboot. No factory reset is required for the upgrade. Review and tune the control on the installed enclosure before relying on it.
 
 ## Wi-Fi recovery and reset
 
@@ -170,7 +175,9 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | POST | `/api/probes` | Swap basking/ambient probe identities |
 | POST | `/api/reset` | Confirm factory reset |
 
-Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (on) or `0` (off), plus `fadeSeconds` (0.1–300 seconds, required when on) and `restartDrop` (0.1–10°C, required in both modes). When fading is off, omitted `fadeSeconds` preserves its saved value. The previous `dimmingRange` parameter is replaced by `fadeSeconds`. `minimumTemperature` optionally sets the 5–40°C floor; omitting it preserves the saved value. `/api/config` returns all four settings. `/api/status` adds `lampPower: [day, night]` and `floorMode` (`0` normal, `1` recovery, `2` night hold); `activeLamp=2` means both lamps during recovery. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
+Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (fade on) or `0` (fade off), plus `fadeSeconds` (0.1–300 seconds, required when on), `proportionalBand` (1–10°C) and `integralSeconds` (60–3600 seconds), both required regardless of fading. PI regulation always remains active; `restartDrop` is retired. When fading is off, omitted `fadeSeconds` preserves its saved value. `minimumTemperature` optionally sets the 5–40°C floor; omitting it preserves the saved value. `/api/config` returns all five settings. `/api/status` includes `targetLimited` when both targets are exceeded by 1°C, plus `lampPower: [day, night]` and `floorMode` (`0` normal, `1` recovery, `2` night hold); `activeLamp=2` means both lamps during recovery. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
+
+HTTP responses close the client after a short or failed socket write, and history streaming stops immediately when a response fails. An 8-second response budget is checked between writes so a stalled client cannot trigger another wait for every remaining history chunk. An individual library socket write can overrun that budget; this is not a hard real-time deadline. Aborted responses are reported on Serial.
 
 Missing/disconnected readings are JSON `null`. The client shows a connection-loss notice when polling fails, avoids overlapping polls, backs off on failures and pauses network requests while the tab is hidden. After Wi-Fi setup, navigation to the connection page is intentional; there are no automatic full-page refreshes.
 
@@ -181,6 +188,7 @@ Missing/disconnected readings are JSON `null`. The client shows a connection-los
 - `ConfigData.h`: per-period configuration, validation and migration of earlier saved settings.
 - `DeviceState.h/.cpp`: synchronized configuration/status and persistent storage.
 - `DeviceWeb.cpp`: setup, networking, clock, server-rendered pages and JSON API endpoints.
+- `DeviceHttpServer.h`: failed-write handling and an inter-write response budget for HTTP clients.
 - `TemperatureHistory.h`: bounded rolling temperature log with UTC minute sampling, compact temperatures, lamp outputs and targets.
 - `HistoryStorage.h` / `HistoryPersistence.cpp`: bounded LittleFS records, checksums, restart recovery and guarded background saves.
 - `WebHistory.h`: embedded SVG history graph, range navigation and reading inspection.

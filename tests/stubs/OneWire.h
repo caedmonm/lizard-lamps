@@ -1,6 +1,7 @@
 #pragma once
 #include "TestPlatform.h"
 struct OneWire {
+ explicit OneWire(int = 0){}
  static uint8_t crc8(const uint8_t* bytes, uint8_t length) {
    uint8_t crc=0;
    for (uint8_t i=0;i<length;++i) {

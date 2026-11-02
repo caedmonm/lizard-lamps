@@ -21,7 +21,7 @@ const char WebClient[] PROGMEM = R"JS(
     document.querySelectorAll('[data-target]').forEach(e=>{const v=s.targets[Number(e.dataset.target)];e.textContent=v===null?'—':Number(v).toFixed(1)+'°C'});
     text('controller-clock',s.clock);text('connectivity',s.wifiConnected?'● Wi-Fi connected':'○ Wi-Fi offline');
     text('active-period',s.floorMode===1?'Minimum recovery · Both lamps':s.floorMode===2?'Minimum hold · Night lamp':s.activeLamp===0?'Day · Lamp 1':s.activeLamp===1?'Night · Lamp 2':'Waiting for schedule');
-    text('power-state',s.power>0?'Heating':'Output off');text('power-percent',s.power+'%');
+    text('power-state',s.targetLimited?'Cooling down':s.power>0?(s.floorMode?'Heating':'Regulating'):'Output off');text('power-percent',s.power+'%');
     if($('power-bar'))$('power-bar').style.width=Math.max(0,Math.min(100,s.power))+'%';
     const fault=!s.sensorsHealthy?'check both temperature probes and temperature limits.':!s.dimmerOnline?'zero-cross detection is unavailable.':!s.clockValid&&!s.floorMode?'waiting for a valid clock. Use your browser time below, or wait for network time.':!s.configured&&!s.floorMode?'finish saving the day and night schedule.':'';
     if($('heating-fault')){$('heating-fault').hidden=!fault;$('heating-fault').textContent=fault?'Heating paused — '+fault:''}
@@ -47,8 +47,8 @@ const char WebClient[] PROGMEM = R"JS(
     });
   }
   document.querySelectorAll('[data-dimming-toggle]').forEach(toggle=>{
-    const range=toggle.form.querySelector('[data-fade-duration]'),drop=toggle.form.querySelector('[data-restart-drop]');
-    const update=()=>{range.hidden=toggle.value!=='1';drop.hidden=false;range.querySelector('input').disabled=range.hidden;drop.querySelector('input').disabled=false};
+    const range=toggle.form.querySelector('[data-fade-duration]');
+    const update=()=>{range.hidden=toggle.value!=='1';range.querySelector('input').disabled=range.hidden};
     toggle.addEventListener('change',update);update();
   });
   document.querySelectorAll('[data-admin-toggle]').forEach(toggle=>{

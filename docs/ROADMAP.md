@@ -8,7 +8,7 @@ The controller now hosts its own interface on the ESP32. Its JSON API serves the
 - Home-network discovery at lizard-lamps.local, with an explicit device IP fallback.
 - Persistent credentials, settings and fixed OneWire probe identities.
 - Responsive on-device overview, combined day/night schedule and temperature editor, probe settings and device/reset pages.
-- Independent day/night basking/ambient targets and full demand to both targets, restart hysteresis and configurable timed fading (default 1 second).
+- Independent day/night basking/ambient targets and PI regulation of the last target reached, with anti-windup, a target-relative command ceiling, and configurable timed fading (default 1 second).
 - Local daily schedule, midnight wrap, London daylight saving and clock fallback.
 - Wi-Fi recovery hotspot and authenticated, CSRF-protected JSON write endpoints with HTML form fallbacks.
 - One-minute snapshots of probe temperatures, lamp percentages and all targets, with 48-hour LittleFS persistence and an interactive overview graph.

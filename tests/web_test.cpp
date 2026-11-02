@@ -70,26 +70,30 @@ int main(int argc, char** argv){
  saveSucceeds=true;scheduleArgs();server.routes["/schedule"]();assert(server.code==303&&deviceConfig.scheduleSet&&deviceConfig.targetsSet);
  assert(deviceConfig.targets[0][0]==30&&deviceConfig.targets[0][1]==24&&deviceConfig.targets[1][0]==20&&deviceConfig.targets[1][1]==18);
  assert(server.routes.count("/targets")==0);
- auto controlArgs = [&] { server.args={{"csrf",csrf},{"dimmingEnabled","0"},{"fadeSeconds","4"},{"restartDrop","2"}}; };
+ auto controlArgs = [&] { server.args={{"csrf",csrf},{"dimmingEnabled","0"},{"fadeSeconds","4"},{"proportionalBand","2"},{"integralSeconds","300"}}; };
  server.auth=false;controlArgs();server.routes["/api/control"]();assert(server.code==401&&deviceConfig.dimmingEnabled);server.auth=true;
  controlArgs();server.args["csrf"]="wrong";server.routes["/api/control"]();assert(server.code==403&&deviceConfig.dimmingEnabled);
- for(const char* field:{"dimmingEnabled","restartDrop"}){
+ for(const char* field:{"dimmingEnabled","proportionalBand","integralSeconds"}){
    controlArgs();server.args.erase(field);server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
  }
  for(const char* bad:{"nan","inf","0","-2","10.1","2junk"}){
-   controlArgs();server.args["restartDrop"]=bad;server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
+   controlArgs();server.args["proportionalBand"]=bad;server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
    controlArgs();server.args["fadeSeconds"]=String(bad)=="10.1"?"300.1":bad;server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
  }
+ for(const char* bad:{"nan","inf","0","59","3601","300junk",""}){
+   controlArgs();server.args["integralSeconds"]=bad;server.routes["/api/control"]();assert(server.code==422);
+ }
+ controlArgs();server.args["proportionalBand"]="0.9";server.routes["/api/control"]();assert(server.code==422);
  controlArgs();server.args["dimmingEnabled"]="1";server.args.erase("fadeSeconds");server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
  controlArgs();server.args["dimmingEnabled"]="yes";server.routes["/api/control"]();assert(server.code==422&&deviceConfig.dimmingEnabled);
  saveSucceeds=false;controlArgs();server.routes["/api/control"]();assert(server.code==500&&deviceConfig.dimmingEnabled);saveSucceeds=true;
- controlArgs();server.routes["/api/control"]();assert(server.code==200&&!deviceConfig.dimmingEnabled&&deviceConfig.fadeSeconds==4&&deviceConfig.restartDrop==2);
- controlArgs();server.args.erase("fadeSeconds");server.args["restartDrop"]="1.5";server.routes["/api/control"]();assert(server.code==200&&deviceConfig.fadeSeconds==4&&deviceConfig.restartDrop==1.5f);
- controlArgs();server.routes["/api/control"]();assert(server.code==200&&deviceConfig.restartDrop==2);
+ controlArgs();server.routes["/api/control"]();assert(server.code==200&&!deviceConfig.dimmingEnabled&&deviceConfig.fadeSeconds==4&&deviceConfig.proportionalBand==2);
+ controlArgs();server.args.erase("fadeSeconds");server.args["proportionalBand"]="1.5";server.routes["/api/control"]();assert(server.code==200&&deviceConfig.fadeSeconds==4&&deviceConfig.proportionalBand==1.5f);
+ controlArgs();server.routes["/api/control"]();assert(server.code==200&&deviceConfig.proportionalBand==2);
  assert(deviceConfig.targets[0][0]==30&&deviceConfig.starts[0]==420);
- server.args={{"view","settings"}};render();assert(server.body.find("Restart temperature drop")!=String::npos&&server.body.find("value='0' selected")!=String::npos);
+ server.args={{"view","settings"}};render();assert(server.body.find("Holding adjustment time")!=String::npos);assert(server.body.find("Proportional band")!=String::npos&&server.body.find("value='0' selected")!=String::npos);
  controlArgs();server.args["dimmingEnabled"]="1";server.routes["/control"]();assert(server.code==303&&deviceConfig.dimmingEnabled);
- server.routes["/api/config"]();assert(server.body.find("\"dimmingEnabled\":true")!=String::npos&&server.body.find("\"fadeSeconds\":4.0")!=String::npos&&server.body.find("\"restartDrop\":2.0")!=String::npos);
+ server.routes["/api/config"]();assert(server.body.find("\"dimmingEnabled\":true")!=String::npos&&server.body.find("\"fadeSeconds\":4.0")!=String::npos&&server.body.find("\"proportionalBand\":2.0")!=String::npos);
  controlArgs();server.args["minimumTemperature"]="17.5";server.routes["/api/control"]();
  assert(server.code==200&&deviceConfig.minimumTemperature==17.5f);
  for(const char* bad:{"nan","inf","4.9","40.1","17junk",""}){
@@ -107,6 +111,9 @@ int main(int argc, char** argv){
  server.args={{"view","monitor"}};render();assert(server.body.find("Minimum recovery · Both lamps")!=String::npos);
  assert(server.body.find("id='history-chart'")!=String::npos && server.body.find("value='48'")!=String::npos);
  server.routes["/api/status"]();assert(server.body.find("\"floorMode\":1")!=String::npos&&server.body.find("\"lampPower\":[")!=String::npos);
+ deviceStatus.targetLimited=true;
+ server.routes["/api/status"]();assert(server.body.find("\"targetLimited\":true")!=String::npos);
+ deviceStatus.targetLimited=false;
  deviceStatus.floorMode=Control::FloorMode::NightHold;
  server.args={{"view","monitor"}};render();assert(server.body.find("Minimum hold · Night lamp")!=String::npos);
  deviceStatus.floorMode=Control::FloorMode::Normal;
@@ -153,5 +160,38 @@ int main(int argc, char** argv){
  server.routes["/api/wifi"]();assert(server.code==200&&!deviceConfig.adminPassword[0]);server.routes["/"]();assert(server.code==200);
  server.args={{"csrf",csrf},{"confirmation","no"}};server.routes["/reset"]();assert(server.code==422&&!resetRequested);
  server.args={{"csrf",csrf},{"confirmation","RESET"}};server.routes["/api/reset"]();assert(server.code==200&&resetRequested);
+ // Serve the actual full-history route through the guarded server. Failed
+ // sockets deliberately remain "connected" until the application closes them.
+ temperatureHistory.clear();
+ for(unsigned i=0;i<TemperatureHistory::Capacity;++i)
+   temperatureHistory.record(historyNow-historyNow%60-(TemperatureHistory::Capacity-1-i)*60,29,23,true,historyTargets,historyPower);
+ server.request=[&]{server.routes["/api/history"]();};
+ for(unsigned failAt : {1U, 6U}) { // Response header, then a streamed payload.
+   server.client()=NetworkClient{};server.client().failAt=failAt;
+   server.handleClient();
+   assert(server.responseFailed()&&!server.client().connected());
+   assert(server.client().writes==failAt); // No retries for the remaining 48 hours.
+ }
+ server.client()=NetworkClient{};server.client().writeLimit=3;
+ server.handleClient();
+ assert(server.responseFailed()&&!server.client().connected()&&server.client().writes==1);
+ // Successful but slow writes hit the inter-write response budget, including rollover.
+ for(uint32_t start : {100U, UINT32_MAX-4000}) {
+   testMillis=start;server.client()=NetworkClient{};server.client().writeDelay=1000;
+   server.handleClient();
+   assert(server.responseFailed()&&!server.client().connected());
+   assert(uint32_t(testMillis-start)>=8000&&uint32_t(testMillis-start)<=9000);
+ }
+ // A slow library write may overrun the budget once, then the response is abandoned.
+ server.client()=NetworkClient{};server.client().writeDelay=10000;
+ server.handleClient();assert(server.responseFailed()&&server.client().writes==1);
+ // The next client gets a complete response; failure state is per request.
+ server.client()=NetworkClient{};server.handleClient();
+ assert(!server.responseFailed()&&server.body.find("\"samples\":[[")!=String::npos);
+ assert(server.body.substr(server.body.size()-2)=="]}");
+ server.request=[&]{server.routes["/api/status"]();};
+ server.client()=NetworkClient{};server.handleClient();
+ assert(server.code==200&&!server.responseFailed()&&server.body.find("\"temperatures\":[")!=String::npos);
  std::cout<<"Optional password setup, protection toggles and actual firmware pages rendered; authentication, CSRF, validation, saving, probe mapping, escaping and reset confirmation checks passed with mocked hardware.\n";
+ std::cout<<"HTTP short/failed writes, slow-response budget, millis rollover and next-client recovery passed with mocked sockets.\n";
 }

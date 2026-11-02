@@ -31,35 +31,6 @@ int main() {
   }
   assert(!validTarget(4.9f) && !validTarget(40.1f));
   assert(validTarget(5) && validTarget(40));
-  float dayNightTargets[2][2]={{30,25},{20,18}};
-  HeatingController controller;
-  auto demand=[&](float basking,float ambient,bool enabled=true,int period=0,float drop=2) {
-    return controller.update(enabled,period,basking,ambient,dayNightTargets,drop);
-  };
-  assert(demand(29.9f,25)==100); // Even a tiny startup deficit reaches the target.
-  assert(demand(30,24.9f)==100); // Both probes must reach target.
-  assert(demand(30,25)==0);
-  assert(demand(29.9f,24.9f)==0); // Restart hysteresis prevents chatter.
-  assert(demand(28.01f,25)==0);
-  assert(demand(28,25)==100); // Exact restart boundary.
-  assert(demand(29.99f,25)==100); // Full demand right up to target.
-  assert(demand(31,26)==0);
-  assert(demand(30,23)==100); // Ambient can restart heating.
-  for (float bad : {NAN,INFINITY,-127.0f,45.0f,85.0f}) {
-    assert(demand(bad,25)==0);assert(demand(29.9f,25)==100);
-    assert(demand(30,bad)==0);assert(demand(29.9f,25)==100);
-  }
-  assert(demand(29,25,false)==0);assert(demand(29,25)==100);
-  assert(demand(19.9f,18,true,1)==100); // New period reaches its own targets.
-  assert(demand(20,18,true,1)==0);
-  assert(demand(19,18,true,1,1)==100); // Configured restart drop.
-  dayNightTargets[1][0]=19;
-  assert(demand(19,18,true,1,1)==0);
-  dayNightTargets[1][0]=19.1f;
-  assert(demand(19,18,true,1,1)==100); // New target takes effect immediately.
-  assert(demand(29,25,true,-1)==0);
-  assert(demand(29,25,true,0,NAN)==0);
-  assert(demand(29,25,true,0,0)==0);
   assert(validFadeSeconds(0.1f)&&validFadeSeconds(300));
   for (float bad : {NAN,INFINITY,0.0f,300.1f}) assert(!validFadeSeconds(bad));
   // Configurable smoothing: default one second, half-second midpoint, immediate fault off.
@@ -169,11 +140,6 @@ int main() {
   auto changed = floor.update(true, 18, 18, 19, false);
   assert(changed.day == 0 && changed.night == 100); // Setting changes apply immediately.
   assert(floor.update(true, 14, 18, 19, false).day == 100);
-  float controlRange;
-  assert(parseControlRange("0.1", controlRange) && controlRange == 0.1f);
-  assert(parseControlRange("10", controlRange) && controlRange == 10);
-  for (const char* invalid : {"", "nan", "inf", "0", "-2", "10.1", "2junk"})
-    assert(!parseControlRange(invalid, controlRange));
   int minute;
   assert(parseTime("00:00", minute) && minute == 0);
   assert(parseTime("23:59", minute) && minute == 1439);

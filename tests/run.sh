@@ -5,6 +5,10 @@ test_build_dir=$(mktemp -d "${TMPDIR:-/tmp}/lizard-tests.XXXXXX")
 trap 'rm -rf "$test_build_dir"' EXIT
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -pedantic tests/control_logic_test.cpp -o "$test_build_dir/control"
 "$test_build_dir/control"
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -pedantic tests/temperature_regulation_test.cpp -o "$test_build_dir/regulation"
+"$test_build_dir/regulation"
+"${CXX:-c++}" -std=c++17 -Itests/stubs tests/controller_loop_test.cpp -o "$test_build_dir/controller-loop"
+"$test_build_dir/controller-loop"
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -pedantic tests/history_test.cpp -o "$test_build_dir/history"
 "$test_build_dir/history"
 "${CXX:-c++}" -std=c++17 -Itests/stubs tests/history_storage_test.cpp -o "$test_build_dir/history-storage"

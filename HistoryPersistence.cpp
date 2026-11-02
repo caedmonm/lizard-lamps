@@ -54,14 +54,17 @@ void serviceTemperatureHistory() {
   if (resetRequested) return;
   const DeviceConfig config = configSnapshot();
   if (memcmp(historyProbes,config.probes,sizeof(historyProbes))) {
-    // Clear old labels from flash before accepting new data; retry failed erasure.
+    // Hide old labels immediately; retry failed erasure without repeatedly pausing output.
+    temperatureHistory.clear();savedThrough=0;
+    if (attempted && uint32_t(millis()-lastAttempt)<10000) return;
+    lastAttempt=millis();attempted=true;
     if (historyStorageReady) {
       if (!beginFlashMaintenance(true)) { historyStorageHealthy=false; return; }
       const bool erased=eraseTemperatureHistory();
       endFlashMaintenance();
       if (!erased) return;
     }
-    temperatureHistory.clear(); savedThrough=0;loaded=false;
+    loaded=false;attempted=false;
     memcpy(historyProbes,config.probes,sizeof(historyProbes));
   }
   const time_t wall = time(nullptr);

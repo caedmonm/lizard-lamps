@@ -4,6 +4,25 @@
 #include "ControlLogic.h"
 
 struct DeviceConfig {
+  uint32_t version = 6;
+  char ssid[33] = {};
+  char wifiPassword[64] = {};
+  // Empty means dashboard password protection is disabled.
+  char adminPassword[64] = {};
+  // [period: 0 day/lamp 1, 1 night/lamp 2][probe: 0 basking, 1 ambient]
+  float targets[2][2] = {{19, 19}, {19, 19}};
+  int starts[2] = {420, 1140};
+  bool targetsSet = false;
+  bool scheduleSet = false;
+  bool probesSet = false;
+  uint8_t probes[2][8] = {};
+  bool dimmingEnabled = true;
+  float fadeSeconds = 1.0f;
+  float proportionalBand = 3.0f;
+  float minimumTemperature = 15.0f;
+  float integralSeconds = 300.0f;
+};
+struct LegacyDeviceConfigV5 {
   uint32_t version = 5;
   char ssid[33] = {};
   char wifiPassword[64] = {};
@@ -85,7 +104,7 @@ struct LegacyDeviceConfigV1 {
 };
 inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV1& old) {
   DeviceConfig result;
-  result.version = old.version == 1 ? 5 : 0;
+  result.version = old.version == 1 ? 6 : 0;
   memcpy(result.ssid, old.ssid, sizeof(result.ssid));
   memcpy(result.wifiPassword, old.wifiPassword, sizeof(result.wifiPassword));
   memcpy(result.adminPassword, old.adminPassword, sizeof(result.adminPassword));
@@ -100,7 +119,7 @@ inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV1& old) {
 }
 inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV2& old) {
   DeviceConfig result;
-  result.version = old.version == 2 ? 5 : 0;
+  result.version = old.version == 2 ? 6 : 0;
   memcpy(result.ssid, old.ssid, sizeof(result.ssid));
   memcpy(result.wifiPassword, old.wifiPassword, sizeof(result.wifiPassword));
   memcpy(result.adminPassword, old.adminPassword, sizeof(result.adminPassword));
@@ -114,7 +133,7 @@ inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV2& old) {
 }
 inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV3& old) {
   DeviceConfig result;
-  result.version = old.version == 3 ? 5 : 0;
+  result.version = old.version == 3 ? 6 : 0;
   memcpy(result.ssid, old.ssid, sizeof(result.ssid));
   memcpy(result.wifiPassword, old.wifiPassword, sizeof(result.wifiPassword));
   memcpy(result.adminPassword, old.adminPassword, sizeof(result.adminPassword));
@@ -125,20 +144,36 @@ inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV3& old) {
   result.scheduleSet = old.scheduleSet;
   result.probesSet = old.probesSet;
   result.dimmingEnabled = old.dimmingEnabled;
-  result.restartDrop = old.restartDrop;
+  return result;
+}
+inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV5& old) {
+  DeviceConfig result;
+  result.version = old.version == 5 ? 6 : 0;
+  memcpy(result.ssid, old.ssid, sizeof(result.ssid));
+  memcpy(result.wifiPassword, old.wifiPassword, sizeof(result.wifiPassword));
+  memcpy(result.adminPassword, old.adminPassword, sizeof(result.adminPassword));
+  memcpy(result.targets, old.targets, sizeof(result.targets));
+  memcpy(result.starts, old.starts, sizeof(result.starts));
+  memcpy(result.probes, old.probes, sizeof(result.probes));
+  result.targetsSet = old.targetsSet;
+  result.scheduleSet = old.scheduleSet;
+  result.probesSet = old.probesSet;
+  result.dimmingEnabled = old.dimmingEnabled;
+  result.fadeSeconds = old.fadeSeconds;
+  result.minimumTemperature = old.minimumTemperature;
   return result;
 }
 inline DeviceConfig migrateLegacyConfig(const LegacyDeviceConfigV4& old) {
-  DeviceConfig result;
-  static_assert(sizeof(result)==sizeof(old), "Review v4 migration layout");
-  memcpy(&result,&old,sizeof(result));
-  result.version = old.version == 4 ? 5 : 0;
-  result.fadeSeconds = 1.0f;
-  return result;
+  LegacyDeviceConfigV5 converted;
+  static_assert(sizeof(converted) == sizeof(old), "Review v4 migration layout");
+  memcpy(&converted, &old, sizeof(converted));
+  converted.version = old.version == 4 ? 5 : 0;
+  converted.fadeSeconds = 1.0f;
+  return migrateLegacyConfig(converted);
 }
 inline bool validConfig(const DeviceConfig& config) {
-  if (config.version != 5 || !Control::validTarget(config.minimumTemperature) || !Control::validFadeSeconds(config.fadeSeconds) ||
-      !Control::validControlRange(config.restartDrop) || !memchr(config.ssid, 0, sizeof(config.ssid)) ||
+  if (config.version != 6 || !Control::validTarget(config.minimumTemperature) || !Control::validFadeSeconds(config.fadeSeconds) ||
+      !Control::validProportionalBand(config.proportionalBand) || !Control::validIntegralSeconds(config.integralSeconds) || !memchr(config.ssid, 0, sizeof(config.ssid)) ||
       !memchr(config.wifiPassword, 0, sizeof(config.wifiPassword)) ||
       !memchr(config.adminPassword, 0, sizeof(config.adminPassword)) ||
       (config.adminPassword[0] && strlen(config.adminPassword) < 8) ||

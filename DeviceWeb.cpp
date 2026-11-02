@@ -6,7 +6,7 @@
 #include "WebClient.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
-#include <WebServer.h>
+#include "DeviceHttpServer.h"
 #include <DNSServer.h>
 #include <Preferences.h>
 #include <esp_system.h>
@@ -14,7 +14,7 @@
 #include <time.h>
 
 namespace {
-WebServer server(80);
+DeviceHttpServer server(80);
 DNSServer dns;
 String hotspotName, csrf;
 bool mdnsStarted = false;
@@ -178,7 +178,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     for (int i = 0; i < 2; ++i) {
       h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'><span data-temperature='" + String(i) + "'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "</span><span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong data-target='" + String(i) + "'>" + String(isfinite(s.targets[i]) ? String(s.targets[i], 1) + "°C" : "—") + "</strong></div></section>";
     }
-    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2 id='active-period'>" + String(s.floorMode == Control::FloorMode::Recovery ? String("Minimum recovery · Both lamps") : s.floorMode == Control::FloorMode::NightHold ? String("Minimum hold · Night lamp") : s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill' id='power-state'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat' id='power-percent'>" + String(s.power) + "%</span></div><div class='power'><span id='power-bar' style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes control scheduled heating. Minimum protection uses only the basking probe: the night lamp heats, with day assistance only at least 5°C below the minimum.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span data-start='0'>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span data-start='1'>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Requested power is not a measured wattage.</p>";
+    h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2 id='active-period'>" + String(s.floorMode == Control::FloorMode::Recovery ? String("Minimum recovery · Both lamps") : s.floorMode == Control::FloorMode::NightHold ? String("Minimum hold · Night lamp") : s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill' id='power-state'>" + String(s.targetLimited ? "Cooling down" : s.power > 0 ? (s.floorMode == Control::FloorMode::Normal ? "Regulating" : "Heating") : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat' id='power-percent'>" + String(s.power) + "%</span></div><div class='power'><span id='power-bar' style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Lamp power follows whichever probe is furthest below its target, then adjusts to hold the last target reached. Either probe reaching 45°C stops heating. Minimum protection uses only the basking probe: the night lamp heats, with day assistance only at least 5°C below the minimum.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span data-start='0'>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span data-start='1'>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Requested power is not a measured wattage.</p>";
     h += "<section class='card' id='temperature-history'><h2>Temperature history</h2><p class='muted small'>Temperatures, targets &amp; lamp outputs · sampled every minute · last 48 hours. Saved on the device across restarts. Logging waits for a valid clock. Changing probe labels clears history.</p><div class='history-controls'><div><label for='history-window'>Time window</label><select id='history-window'><option value='1'>1 hour</option><option value='6' selected>6 hours</option><option value='12'>12 hours</option><option value='24'>24 hours</option><option value='48'>48 hours</option></select></div><button type='button' id='history-older' aria-label='Show earlier temperatures'>← Earlier</button><button type='button' id='history-newer' aria-label='Show later temperatures'>Later →</button><button type='button' id='history-latest'>Latest</button></div><label for='history-position' class='gap'>Explore the last 48 hours</label><input id='history-position' type='range' min='0' max='2520' step='1' value='2520'><p id='history-period' class='small muted'></p><svg id='history-chart' viewBox='0 0 800 280' role='img' aria-label='Temperature, lamp output and day/night target history'></svg><div class='history-legend'><label><input type='checkbox' data-history-series='0' checked><i class='swatch' style='background:#28583e'></i>Basking spot</label><label><input type='checkbox' data-history-series='1' checked><i class='swatch' style='background:#8260ac'></i>Ambient</label><label><input type='checkbox' data-history-series='2' checked><i class='swatch' style='background:#d06c1b'></i>Lamp 1 output</label><label><input type='checkbox' data-history-series='3' checked><i class='swatch' style='background:#286bb0'></i>Lamp 2 output</label><label><input type='checkbox' data-history-series='4' checked><i class='swatch' style='background:#639b41'></i>Day basking target</label><label><input type='checkbox' data-history-series='5' checked><i class='swatch' style='background:#bc82ad'></i>Day ambient target</label><label><input type='checkbox' data-history-series='6' checked><i class='swatch' style='background:#ab8841'></i>Night basking target</label><label><input type='checkbox' data-history-series='7' checked><i class='swatch' style='background:#3b9e9d'></i>Night ambient target</label></div><label for='history-reading' class='gap'>Inspect a reading</label><input id='history-reading' type='range' min='0' max='1' value='1' step='1'><p id='history-detail' class='small' role='status'></p><p id='history-message' class='small muted' role='status'>Loading temperature history…</p></section>";
   } else if (view == "schedule") {
     h += "<section class='card'><h2>Day & night schedule</h2><p class='muted'>Set when each period begins and the temperatures to maintain. The schedule repeats daily in Europe/London time.</p>" + timeline(c) + "</section>" + formStart("/schedule");
@@ -191,12 +191,12 @@ void render(const String& error = "", int code = 200, const String& forcedView =
       h += "<div><label for='" + String(baskingFields[period]) + "'>Basking spot · °C</label><input type='number' id='" + baskingFields[period] + "' name='" + baskingFields[period] + "' step='0.1' min='5' max='40' required value='" + String(c.targets[period][0], 1) + "'></div>";
       h += "<div><label for='" + String(ambientFields[period]) + "'>Ambient · °C</label><input type='number' id='" + ambientFields[period] + "' name='" + ambientFields[period] + "' step='0.1' min='5' max='40' required value='" + String(c.targets[period][1], 1) + "'></div></div></section>";
     }
-    h += "<p class='muted small'>Start times must differ. Day/lamp 1 runs until night/lamp 2 begins, then night runs until day begins again. Each period uses its own targets. Allowed targets: 5–40°C; heating pauses if either probe reaches 45°C.</p><button>Save schedule & temperatures</button></form>";
+    h += "<p class='muted small'>Start times must differ. Day/lamp 1 runs until night/lamp 2 begins, then night runs until day begins again. Each period uses both targets. The last probe to reach its target determines holding power; the other may run warmer. Allowed targets: 5–40°C; heating pauses if either probe reaches 45°C.</p><button>Save schedule & temperatures</button></form>";
   } else if (view == "settings") {
-    h += "<section class='card'><h2>Heating control</h2><p class='muted'>The selected lamp heats at full demand until both probes reach their targets, then fades to off. It restarts when either probe falls by the restart drop. Minimum-temperature protection and faults act immediately.</p>" + formStart("/control");
+    h += "<section class='card'><h2>Heating control</h2><p class='muted'>The selected lamp follows whichever probe is furthest below its target, reducing power as the last target approaches and learning the power needed to hold it. The other probe may run above its target. Scheduled heating stops immediately if both probes are at least 1°C above their targets; minimum-temperature protection and faults also act immediately.</p>" + formStart("/control");
     h += "<label for='dimmingEnabled'>Fade output changes</label><select id='dimmingEnabled' name='dimmingEnabled' data-dimming-toggle><option value='1'" + String(c.dimmingEnabled ? " selected" : "") + ">On</option><option value='0'" + String(!c.dimmingEnabled ? " selected" : "") + ">Off</option></select>";
-    h += "<div data-fade-duration><label for='fadeSeconds'>Fade duration · seconds</label><input type='number' id='fadeSeconds' name='fadeSeconds' step='0.1' min='0.1' max='300' required value='" + String(c.fadeSeconds, 1) + "'><p class='muted small'>Time for a scheduled output change to reach its new percentage. Default: 1 second; range: 0.1–300 seconds. Applies to fading on and off and day/night transitions.</p></div>";
-    h += "<div data-restart-drop><label for='restartDrop'>Restart temperature drop · °C</label><input type='number' id='restartDrop' name='restartDrop' step='0.1' min='0.1' max='10' required value='" + String(c.restartDrop, 1) + "'><p class='muted small'>After both probes reach their targets, heating stays off until either probe drops this far below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C.</p></div><label for='minimumTemperature'>Minimum safe temperature · °C</label><input type='number' id='minimumTemperature' name='minimumTemperature' step='0.1' min='5' max='40' required value='" + String(c.minimumTemperature, 1) + "'><p class='muted small'>Only the basking probe controls this minimum. Below it, the night lamp runs at full power. The day lamp assists only while basking is at least 5°C below the minimum. When scheduled heating is off or the clock is unavailable, the night lamp maintains the minimum with a 0.5°C holding band. Works without Wi-Fi or a clock, including before schedule setup. Probe and dimmer faults still stop heating.</p><button>Save heating control</button></form></section>";
+    h += "<div data-fade-duration><label for='fadeSeconds'>Fade duration · seconds</label><input type='number' id='fadeSeconds' name='fadeSeconds' step='0.1' min='0.1' max='300' required value='" + String(c.fadeSeconds, 1) + "'><p class='muted small'>Time for a scheduled output change to reach its new percentage. This smooths power changes; temperature regulation remains active when fading is off. Default: 1 second; range: 0.1–300 seconds. Applies to fading on and off and day/night transitions.</p></div>";
+    h += "<label for='proportionalBand'>Proportional band · °C</label><input type='number' id='proportionalBand' name='proportionalBand' step='0.1' min='1' max='10' required value='" + String(c.proportionalBand, 1) + "'><p class='muted small'>How gently power reduces near the last target. Default: 3°C. A wider band gives a gentler response.</p><label for='integralSeconds'>Holding adjustment time · seconds</label><input type='number' id='integralSeconds' name='integralSeconds' step='1' min='60' max='3600' required value='" + String(c.integralSeconds, 0) + "'><p class='muted small'>How slowly the controller learns the power needed to hold the target. Default: 300 seconds. Increase this if temperature repeatedly overshoots. These controls stay active when fading is off.</p><label for='minimumTemperature'>Minimum safe temperature · °C</label><input type='number' id='minimumTemperature' name='minimumTemperature' step='0.1' min='5' max='40' required value='" + String(c.minimumTemperature, 1) + "'><p class='muted small'>Only the basking probe controls this minimum. Below it, the night lamp runs at full power. The day lamp assists only while basking is at least 5°C below the minimum. When scheduled heating is off or the clock is unavailable, the night lamp maintains the minimum with a 0.5°C holding band. Works without Wi-Fi or a clock, including before schedule setup. Probe and dimmer faults still stop heating.</p><button>Save heating control</button></form></section>";
     h += "<section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code data-probe='0'>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code data-probe='1'>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Day and night targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
   } else {
     h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Dashboard access</h2>" + formStart("/admin") + "<input type='hidden' data-admin-current value='" + String(c.adminPassword[0] ? "1" : "0") + "'>" + adminFields(false, c) + "<button>Save password protection</button></form></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule, probe mappings and temperature history. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
@@ -260,7 +260,7 @@ void apiStatus() {
   sendJson("{\"temperatures\":[" + jsonNumber(status.temperatures[0]) + "," + jsonNumber(status.temperatures[1]) +
            "],\"targets\":[" + jsonNumber(status.targets[0]) + "," + jsonNumber(status.targets[1]) +
            "],\"activeLamp\":" + String(status.activeLamp) + ",\"power\":" + String(status.power) +
-           ",\"lampPower\":[" + String(status.lampPower[0]) + "," + String(status.lampPower[1]) + "],\"floorMode\":" + String(int(status.floorMode)) +
+           ",\"lampPower\":[" + String(status.lampPower[0]) + "," + String(status.lampPower[1]) + "],\"floorMode\":" + String(int(status.floorMode)) + ",\"targetLimited\":" + jsonBool(status.targetLimited) +
            ",\"sensorsHealthy\":" + jsonBool(status.sensorsHealthy) + ",\"dimmerOnline\":" + jsonBool(status.dimmerOnline) +
            ",\"clockValid\":" + jsonBool(status.clockValid) + ",\"clock\":" + jsonString(clockText()) +
            ",\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) +
@@ -277,6 +277,7 @@ void apiHistory() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   sendJson("{\"nowEpoch\":" + String(epochText) + ",\"intervalSeconds\":60,\"retentionSeconds\":172800,\"clockValid\":" + String(jsonBool(clockValid)) +
            ",\"storageHealthy\":" + jsonBool(historyStorageHealthy) + ",\"samples\":[");
+  if (server.responseFailed()) return;
   String chunk;chunk.reserve(1200);
   if (clockValid) for (size_t i=0;i<temperatureHistory.size();++i) {
     const auto& sample = temperatureHistory.at(i);
@@ -287,9 +288,14 @@ void apiHistory() {
     for (int lamp=0;lamp<2;++lamp) for (int probe=0;probe<2;++probe)
       chunk += "," + jsonNumber(TemperatureHistory::decode(sample.targets[lamp][probe]));
     chunk += "]";
-    if (chunk.length()>1000) { server.sendContent(chunk);chunk=""; }
+    if (chunk.length()>1000) {
+      server.sendContent(chunk);
+      if (server.responseFailed()) return;
+      chunk="";
+    }
   }
   server.sendContent(chunk+"]}");
+  if (server.responseFailed()) return;
   server.sendContent("");
 }
 
@@ -300,7 +306,7 @@ void apiConfig() {
            "],\"targets\":[[" + jsonNumber(config.targets[0][0]) + "," + jsonNumber(config.targets[0][1]) +
            "],[" + jsonNumber(config.targets[1][0]) + "," + jsonNumber(config.targets[1][1]) +
            "]],\"dimmingEnabled\":" + jsonBool(config.dimmingEnabled) + ",\"fadeSeconds\":" + jsonNumber(config.fadeSeconds) +
-           ",\"minimumTemperature\":" + jsonNumber(config.minimumTemperature) + ",\"restartDrop\":" + jsonNumber(config.restartDrop) + ",\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) + ",\"adminProtected\":" + jsonBool(config.adminPassword[0]) + ",\"probes\":[" +
+           ",\"minimumTemperature\":" + jsonNumber(config.minimumTemperature) + ",\"proportionalBand\":" + jsonNumber(config.proportionalBand) + ",\"integralSeconds\":" + jsonNumber(config.integralSeconds) + ",\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) + ",\"adminProtected\":" + jsonBool(config.adminPassword[0]) + ",\"probes\":[" +
            (config.probesSet ? jsonString(address(config.probes[0])) : String("null")) + "," +
            (config.probesSet ? jsonString(address(config.probes[1])) : String("null")) + "]}");
 }
@@ -390,10 +396,11 @@ void webTask(void*) {
     String mode = server.arg("dimmingEnabled");
     if ((mode != "0" && mode != "1") ||
         (mode == "1" && !server.hasArg("fadeSeconds")) ||
-        (!server.hasArg("restartDrop")) ||
+        (!server.hasArg("proportionalBand") || !server.hasArg("integralSeconds")) ||
         (server.hasArg("fadeSeconds") && !Control::parseFadeSeconds(server.arg("fadeSeconds").c_str(), candidate.fadeSeconds)) ||
-        (server.hasArg("restartDrop") && !Control::parseControlRange(server.arg("restartDrop").c_str(), candidate.restartDrop))) {
-      render("Choose fading on or off, a duration of 0.1–300 seconds and a restart drop of 0.1–10°C.", 422, "settings"); return;
+        (!Control::parseProportionalBand(server.arg("proportionalBand").c_str(), candidate.proportionalBand)) ||
+        (!Control::parseIntegralSeconds(server.arg("integralSeconds").c_str(), candidate.integralSeconds))) {
+      render("Choose fading on or off, a fade of 0.1–300 seconds, a proportional band of 1–10°C and a holding adjustment time of 60–3600 seconds.", 422, "settings"); return;
     }
     if (server.hasArg("minimumTemperature") &&
         !Control::parseTarget(server.arg("minimumTemperature").c_str(), candidate.minimumTemperature)) {
