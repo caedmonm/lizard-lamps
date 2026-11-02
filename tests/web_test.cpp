@@ -15,6 +15,7 @@ bool saveSucceeds = true;
 bool saveConfig(const DeviceConfig& c){if (!saveSucceeds) return false;deviceConfig=c;return true;}
 bool loadConfig(){return true;}
 int main(int argc, char** argv){
+ assert(DeviceConfig{}.fadeSeconds==1.0f);
  const std::string outputDirectory = argc > 1 ? argv[1] : "/tmp";
  try{webTask(nullptr);}catch(const std::runtime_error&){}
  assert(WiFi.openAP);
@@ -32,6 +33,12 @@ int main(int argc, char** argv){
  server.routes["/api/history"]();assert(server.code==200);
  std::ofstream(outputDirectory+"/history.json")<<server.body;
  assert(server.headers["Cache-Control"]=="no-store");
+ temperatureHistory.clear();
+ for(unsigned i=0;i<TemperatureHistory::Capacity;++i)
+   temperatureHistory.record(historyNow-historyNow%60-(TemperatureHistory::Capacity-1-i)*60,29,23,true,historyTargets,historyPower);
+ server.routes["/api/history"]();
+ std::ofstream(outputDirectory+"/history-full.json")<<server.body;
+ temperatureHistory.clear();
  csrf="test-token"; hotspot=false;
  server.routes["/api/status"]();assert(server.body.find("null")!=String::npos);assert(server.contentType.find("application/json")!=String::npos);
  std::ofstream(outputDirectory+"/status-empty.json")<<server.body;
@@ -91,6 +98,11 @@ int main(int argc, char** argv){
  }
  controlArgs();server.routes["/api/control"]();assert(deviceConfig.minimumTemperature==17.5f);
  server.routes["/api/config"]();assert(server.body.find("\"minimumTemperature\":17.5")!=String::npos);
+ for(const char* fade:{"0.1","1","300"}) {
+   controlArgs();server.args["dimmingEnabled"]="1";server.args["fadeSeconds"]=fade;
+   server.routes["/api/control"]();assert(server.code==200&&deviceConfig.fadeSeconds==std::stof(fade));
+ }
+ controlArgs();server.args["fadeSeconds"]="4";server.routes["/api/control"]();
  deviceStatus.floorMode=Control::FloorMode::Recovery;deviceStatus.activeLamp=2;
  server.args={{"view","monitor"}};render();assert(server.body.find("Minimum recovery · Both lamps")!=String::npos);
  assert(server.body.find("id='history-chart'")!=String::npos && server.body.find("value='48'")!=String::npos);

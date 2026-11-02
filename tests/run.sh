@@ -22,7 +22,7 @@ python3 - "$test_build_dir" <<'PY'
 import json,sys
 from pathlib import Path
 root=Path(sys.argv[1])
-for name in ['status-empty','status','connection','config','history']:
+for name in ['status-empty','status','connection','config','history','history-full']:
     json.loads((root/(name+'.json')).read_text())
 assert json.loads((root/'status-empty.json').read_text())['temperatures']==[None,None]
 assert json.loads((root/'config.json').read_text())['targets']==[[30,24],[20,18]]
@@ -31,5 +31,8 @@ assert len(history['samples'])==2 and history['intervalSeconds']==60
 assert history['samples'][0][1:]==[30,24,60,0,30,24,20,18]
 assert history['samples'][1][1:]==[None,46,60,0,30,24,20,18]
 assert history['samples'][0][0]-history['samples'][1][0]==60
+full=json.loads((root/'history-full.json').read_text())['samples']
+assert 2880<=len(full)<=2881 and all(len(s)==9 for s in full)
+assert full[0][0]<=172800 and full[-1][0]<60
 print('API JSON responses parse correctly, including missing readings and day/night targets.')
 PY

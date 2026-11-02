@@ -17,9 +17,10 @@ Verify the exact dimmer's logic voltage, zero-cross signal, isolation, current r
 - A last-reading timeout of 3 seconds disables heating when the loop can evaluate it.
 - Invalid configuration and unavailable zero-cross detection request zero output.
 - Below the minimum on the basking probe, the night lamp immediately requests full output until basking reaches the floor. Day assistance requests full output only while basking is at least 5°C below the minimum; it stops immediately above that threshold. Ambient readings do not set minimum demand, but both probes retain fault/over-temperature shutdown. With no scheduled demand, the night lamp then holds the basking minimum with a 0.5°C band. Floor requests bypass fades; they intentionally allow simultaneous outputs during recovery. Verify the supply and dimmer can support both loads together.
-- Normal scheduled power changes fade over 10 seconds. Lamp switching fades the outgoing lamp to off, waits 20ms with both outputs off, then fades the incoming lamp up over 10 seconds. Faults and maintenance bypass fades and command immediate off.
-- Configuration writes wait for the control loop to acknowledge output off; unsuccessful writes do not apply the proposed settings.
+- Scheduled demand remains at 100% until both targets are reached, then changes to 0%. Either probe can restart demand at its configured drop. Output changes fade over a configurable duration (default 1 second, 0.1–300 seconds); fading can be disabled. Switching lamps reaches zero on the outgoing channel, waits 20ms with both off, then ramps the incoming channel. Faults and maintenance command immediate off. Temperature overshoot from thermal inertia remains possible.
+- Configuration and history writes wait for the control loop to acknowledge output off; unsuccessful writes do not apply the proposed settings.
 - Factory reset waits for output-off acknowledgment before erasing data and restarting.
+- Minute history saves briefly pause both outputs while preserving the fade/controller state. Mounting/initializing LittleFS occurs before dimmer startup. Flash writes can still suspend execution and require hardware timing verification.
 - HTTP/network activity runs in a separate task from the control loop.
 
 The 45°C threshold is fixed in `ControlLogic.h` and must be assessed for the actual enclosure. It is not an independent thermal cutout. Fault shutdown is not latched: heating may resume once readings and other required conditions are healthy.

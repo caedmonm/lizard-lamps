@@ -46,22 +46,13 @@ Identify your physical probes by their readings and displayed OneWire addresses.
 
 The schedule repeats daily in **Europe/London** local time. Lamp 1 runs from its start time until lamp 2's start time; lamp 2 runs until lamp 1 starts again. Start times must differ. For example, 07:00 / 19:00 selects lamp 1 during the day and lamp 2 overnight. Reversing those times makes lamp 1 cover the overnight period.
 
-During normal scheduled heating, only the selected lamp receives a nonzero power command. Power changes fade linearly over 10 seconds. On a lamp change, the outgoing lamp fades to off over 10 seconds, both outputs stay off for a 20ms settling period, then the incoming lamp fades to its requested power over 10 seconds. A complete change between powered lamps takes approximately 20 seconds; normal scheduled transitions never overlap. Minimum-temperature recovery intentionally powers both lamps. New power requests during a fade start a new 10-second ramp from the current output. Each period has its own basking and ambient targets; switching periods changes the selected lamp and both target temperatures together. The overview shows the active period’s targets.
+During normal scheduled heating, only the selected lamp receives a nonzero power command. It requests **100% until both active probe targets have been reached**, then requests 0%. Power no longer reduces as temperature approaches the target. On initial startup, after a fault, or when the period/targets change, any deficit starts heating. After reaching the targets, heating restarts when **either** probe falls by the configured **Restart temperature drop** (default 2°C; range 0.1–10°C). For example, a 30°C target with a 2°C drop restarts at 28°C.
 
-Both probes influence the selected lamp:
+**Settings → Heating control** offers **Fade output changes** and a **Fade duration** in seconds. The default is **1 second**, configurable from 0.1 to 300 seconds. Fading applies when heating starts and when it stops after reaching the targets. Turning fading off applies scheduled demand immediately. A changed demand starts a new timed ramp from the current output; the ramp does not depend on temperature deficit.
 
-```text
-largest deficit = max(active period basking target - basking temperature,
-                      active period ambient target - ambient temperature)
-with dimming on:
-requested power = clamp(largest deficit / dimming range, 0, 1) × 100%
-```
+On day/night changes, the outgoing lamp fades to off, both outputs stay off for a 20ms settling period, then the incoming lamp fades up using the same duration. Normal transitions never overlap. Minimum-temperature protection bypasses fades and may intentionally use both lamps. Faults/reset/configuration writes request immediate off. Each period has its own basking and ambient targets; switching periods changes both targets together.
 
-Open **Settings → Heating control** to turn dimming on or off. With dimming on (the default), set the **Dimming range**: the lamp receives full power when the greatest deficit reaches this range and progressively dims as the targets approach. The default range is 3°C.
-
-With dimming off, the selected lamp targets either 100% or 0%, with a 10-second fade between them. It stays on until **both** probes reach their respective targets, then stays off until **either** probe falls by the **Restart temperature drop** below its target. For example, a 30°C target and a 2°C drop restart heating at 28°C. The default drop is 2°C. Both ranges accept 0.1–10°C and apply to both day and night. Each mode retains its own range when switching modes.
-
-On startup, after a fault or settings save, and when the active period or its targets change, on/off control starts from off and waits for the restart threshold. Existing sensor, clock and zero-cross safeguards apply in both modes.
+Heating after reaching a target can still cause some overshoot because of thermal inertia. These settings do not predict stored heat or guarantee exact temperature regulation.
 
 ### Minimum safe temperature
 
@@ -76,7 +67,7 @@ This guard operates locally without Wi-Fi, NTP or a browser, after the first hea
 
 The overview labels **Minimum recovery · Both lamps** and **Minimum hold · Night lamp**, and displays the minimum as the basking target during floor protection; ambient has no floor target. Requested power is the greater of the two channel requests, not their sum; the status API also reports each channel separately.
 
-The sketch rounds to a whole percentage and enables Mycila's power lookup table. With dimming on and the default 3°C range, a 2°C greatest deficit requests approximately 67% power. Requested power is not measured electrical wattage.
+The sketch rounds output to whole percentages and enables Mycila's power lookup table. Intermediate percentages occur during timed fades. Requested power is not measured electrical wattage.
 
 Targets are validated between **5°C and 40°C**. If either measured temperature reaches the prototype's fixed **45°C** limit, is invalid/disconnected, or becomes stale, heating is commanded off immediately, bypassing fades. Maintenance and factory reset also stop heating immediately. These bounds are firmware safeguards, not recommended husbandry temperatures or certified safety protection.
 
@@ -86,6 +77,8 @@ DST behavior is based on the current wall-clock period: spring skips nonexistent
 
 ## Upgrading existing devices
 
+Saved configurations migrate to v5. Wi-Fi credentials, password protection, probe identities, targets, start times, restart drop and minimum temperature are preserved. The former temperature dimming range is replaced by a **1-second fade duration**. The previous dimming toggle now enables/disables time-based fading. Review the new behavior before using the upgraded controller.
+
 Saved settings from configuration versions 1–3 are migrated automatically. The minimum defaults to 15°C; existing Wi-Fi credentials, dashboard password, switch times, probe mappings and targets are preserved. Version 3 retains its chosen dimming mode and ranges. Versions 1–2 default to dimming on with a 3°C range and a 2°C restart drop. Version 1's shared basking/ambient targets are copied into both periods. Edit **Schedule & temps** to choose different temperatures for each period. Incomplete previous setup still requires the combined form for scheduled heating; minimum-temperature protection remains available.
 
 
@@ -93,7 +86,7 @@ Saved settings from configuration versions 1–3 are migrated automatically. The
 
 The device keeps automatic Wi-Fi reconnect enabled and explicitly retries the saved network every **60 seconds** while disconnected, indefinitely. After losing an established connection, it gives automatic reconnect a minute before the first explicit retry; startup and saved Wi-Fi changes attempt immediately. A minute allows time for association/DHCP and avoids continually restarting the connection attempt. If disconnected for 30 seconds, it opens the same open recovery hotspot. Periodic retries preserve that hotspot and saved credentials; it closes two minutes after reconnection. If Wi-Fi remains connected but the router loses internet access, the controller keeps its LAN connection and local dashboard available instead of restarting healthy Wi-Fi. Network-time synchronization remains enabled. Scheduled control remains active when the clock and hardware are healthy. Minimum-temperature protection needs healthy hardware but no clock. Visit 192.168.4.1 and sign in if protection is enabled to correct Wi-Fi details on the Device page. Save the complete Wi-Fi password when changing networks; blank means an open network.
 
-**Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule and probe mapping, clears the ESP32 station credentials, and restarts. Join the open LizardLamps-XXXXXX hotspot and visit http://192.168.4.1 to start again.
+**Device → Factory reset** requires typing `RESET`. It commands heating off, clears the application's saved Wi-Fi credentials, dashboard password, targets, schedule, probe mapping and saved temperature history, clears the ESP32 station credentials, and restarts. Join the open LizardLamps-XXXXXX hotspot and visit http://192.168.4.1 to start again.
 
 The setup hotspot is open and initial provisioning is accessible to nearby connected devices. When protection is enabled, the dashboard uses HTTP Digest authentication. A per-boot form token protects writes in either mode. Wi-Fi and dashboard credentials are stored in device NVS; flash encryption is not configured by this project. It is intended for a trusted local network; do not expose its HTTP service directly to the internet.
 
@@ -149,11 +142,15 @@ Run tests with a C++17 compiler and Python 3 (Node.js enables the embedded AJAX 
 
 ## Temperature history
 
-The overview graphs both **basking spot** and **ambient** probe readings. The controller records one paired snapshot every five minutes, starting with its first sensor reading, and automatically discards readings older than 48 hours. Logging continues without Wi-Fi, a valid wall clock or an open dashboard. Disconnected, invalid or stale readings appear as gaps; real readings above the heating cutoff remain visible.
+The overview logs one snapshot **every minute**, keeping the latest **48 hours**. Each snapshot contains both measured probe temperatures, both lamp output percentages, and the four configured day/night basking/ambient targets. Temperatures have 0.1°C resolution. Disconnected, invalid or stale readings appear as gaps; real readings above the heating cutoff remain visible. The percentages are requested output, not measured wattage.
 
-Choose a 1, 6, 12, 24 or 48-hour window, use Earlier/Later or the timeline slider to explore, and select Latest to follow new readings. Hover/touch the chart or use the keyboard-accessible reading slider to inspect values and dates. Times are shown in Europe/London, using the browser clock to date uptime-based samples. The history refreshes once a minute while the page is visible.
+Choose a 1, 6, 12, 24 or 48-hour window, use Earlier/Later or the timeline slider to explore, and select Latest to follow new readings. Toggle any of the eight series in the legend. Temperatures/targets use the left °C axis; lamp outputs use the right % axis. Hover/touch the chart or use the reading slider to inspect all values and dates. Times display in Europe/London; the graph refreshes once a minute while visible.
 
-Storage is a fixed RAM ring of **577 paired samples** (including both ends of 48 hours), using **less than 7 KB**. There are no periodic flash writes. History clears on restart, power loss or a probe-label swap. It does not survive a firmware update. Sampling and expiry use uptime and remain stable across NTP corrections and the ESP32 millisecond timer rollover; long sampling delays leave gaps rather than invented readings.
+History is saved to **LittleFS flash storage** and restored after restarts and power loss once the clock is valid. Logging also waits for valid time (NTP or browser-time fallback), so offline periods with no clock remain gaps. Ordinary firmware uploads preserve the log when they preserve the filesystem partition; erasing flash or changing partitions can remove it. Changing probe labels or performing a factory reset clears history. A power cut can lose the in-progress save, but committed records have integrity checks and damaged records are skipped independently.
+
+Storage is bounded: **2,881 samples × 20 bytes**, below **58 KB RAM**, and 49 reusable hourly files containing at most **71,932 bytes of record/header payload** plus filesystem overhead. The supported default partition provides **1,441,792 bytes (1.375 MiB)** for files. At least 1 MiB of filesystem space is required. The API strictly filters records older than 48 hours; hourly files can retain older bytes until their slot is reused (up to about 49 hours during continuous operation). Sampling uses UTC minute slots; clock corrections discard future RAM points and expired data, and missing minutes are never fabricated.
+
+Each new record is flushed and read back once saved; failed writes retry and display a persistence warning on the chart. The filesystem handles flash wear levelling. RAM logging continues if flash is unavailable. A completely blank filesystem partition is initialized on first use before dimmer startup; a nonblank filesystem that cannot be mounted is never silently formatted. Flash writes use the controller's output-off acknowledgement, briefly pause output and preserve the existing fade state. Verify the pauses and free heap on the actual board before relying on this feature.
 
 ## On-device API
 
@@ -163,7 +160,7 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | --- | --- | --- |
 | GET | `/api/status` | Temperatures, active targets, selected lamp, requested power, clock and health |
 | GET | `/api/connection` | Wi-Fi progress, network name, LAN IP and hotspot state |
-| GET | `/api/history` | Last 48 hours: `samples` as `[ageSeconds, baskingC, ambientC]`, oldest first; missing values are `null` |
+| GET | `/api/history` | Last 48 hours: `samples` as `[ageSeconds, baskingC, ambientC, dayPercent, nightPercent, dayBaskingTarget, dayAmbientTarget, nightBaskingTarget, nightAmbientTarget]`, oldest first; missing values are `null` |
 | GET | `/api/config` | Day/night start times, targets, probe identities and protection state |
 | POST | `/api/schedule` | Save both periods and all four targets together |
 | POST | `/api/wifi` | Save Wi-Fi details and initial dashboard protection choice |
@@ -173,7 +170,7 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | POST | `/api/probes` | Swap basking/ambient probe identities |
 | POST | `/api/reset` | Confirm factory reset |
 
-Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (on) or `0` (off), plus `dimmingRange` when on or `restartDrop` when off, in °C. The inactive range may be omitted to preserve its saved value. `minimumTemperature` optionally sets the 5–40°C floor; omitting it preserves the saved value. `/api/config` returns all four settings. `/api/status` adds `lampPower: [day, night]` and `floorMode` (`0` normal, `1` recovery, `2` night hold); `activeLamp=2` means both lamps during recovery. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
+Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (on) or `0` (off), plus `fadeSeconds` (0.1–300 seconds, required when on) and `restartDrop` (0.1–10°C, required in both modes). When fading is off, omitted `fadeSeconds` preserves its saved value. The previous `dimmingRange` parameter is replaced by `fadeSeconds`. `minimumTemperature` optionally sets the 5–40°C floor; omitting it preserves the saved value. `/api/config` returns all four settings. `/api/status` adds `lampPower: [day, night]` and `floorMode` (`0` normal, `1` recovery, `2` night hold); `activeLamp=2` means both lamps during recovery. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
 
 Missing/disconnected readings are JSON `null`. The client shows a connection-loss notice when polling fails, avoids overlapping polls, backs off on failures and pauses network requests while the tab is hidden. After Wi-Fi setup, navigation to the connection page is intentional; there are no automatic full-page refreshes.
 
@@ -184,7 +181,8 @@ Missing/disconnected readings are JSON `null`. The client shows a connection-los
 - `ConfigData.h`: per-period configuration, validation and migration of earlier saved settings.
 - `DeviceState.h/.cpp`: synchronized configuration/status and persistent storage.
 - `DeviceWeb.cpp`: setup, networking, clock, server-rendered pages and JSON API endpoints.
-- `TemperatureHistory.h`: bounded rolling temperature log with uptime-based sampling and retention.
+- `TemperatureHistory.h`: bounded rolling temperature log with UTC minute sampling, compact temperatures, lamp outputs and targets.
+- `HistoryStorage.h` / `HistoryPersistence.cpp`: bounded LittleFS records, checksums, restart recovery and guarded background saves.
 - `WebHistory.h`: embedded SVG history graph, range navigation and reading inspection.
 - `WebClient.h`: AJAX polling, live DOM updates, inline settings saves and connection feedback.
 - `WebStyle.h`: embedded responsive design.

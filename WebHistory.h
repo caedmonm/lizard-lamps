@@ -29,7 +29,7 @@ const char WebHistory[] PROGMEM = R"JS(
     if(!sample){$('history-detail').textContent='No readings in this period.';return}
     selected=sample.time;reading.value=index;
     const x=52+(sample.time-(end-duration()))/duration()*(chartWidth-110);
-    svg('line',{x1:x,x2:x,y1:15,y2:242,class:'history-cursor'});
+    svg('line',{x1:x,x2:x,y1:30,y2:242,class:'history-cursor'});
     $('history-detail').textContent=format(sample.time)+' · '+series.map((item,i)=>item.name+': '+(sample.values[i]===null||sample.values[i]===undefined?'unavailable':sample.values[i].toFixed(item.power?0:1)+(item.power?'%':'°C'))).join(' · ');
   }
   function draw(){
@@ -49,7 +49,7 @@ const char WebHistory[] PROGMEM = R"JS(
     chart.replaceChildren();
     const values=visible.flatMap(s=>s.values.filter((v,i)=>v!==null&&shown[i]&&!series[i].power));
     const low=values.length?Math.floor(Math.min(...values)-1):0,high=values.length?Math.ceil(Math.max(...values)+1):40;
-    const x=t=>52+(t-start)/span*(chartWidth-110),y=v=>242-(v-low)/(high-low)*227;
+    const x=t=>52+(t-start)/span*(chartWidth-110),y=v=>242-(v-low)/(high-low)*212;
     svg('text',{x:44,y:12,'text-anchor':'end'},'°C');
     svg('text',{x:chartWidth-48,y:12},'%');
     const ticks=chartWidth<500?2:4;
@@ -69,7 +69,7 @@ const char WebHistory[] PROGMEM = R"JS(
       visible.forEach(s=>{
         const value=s.values[probe];
         if(value===null||value===undefined){previous=null;return}
-        const top=item.power?242-value/100*227:y(value);
+        const top=item.power?242-value/100*212:y(value);
         const joined=previous!==null&&s.time-previous<=interval*1.5;
         if(joined&&probe>=2)path+='H'+x(s.time).toFixed(2)+' V'+top.toFixed(2)+' ';
         else path+=(joined?'L':'M')+x(s.time).toFixed(2)+' '+top.toFixed(2)+' ';
@@ -99,7 +99,7 @@ const char WebHistory[] PROGMEM = R"JS(
       try{
         const response=await fetch('/api/history',{credentials:'same-origin',cache:'no-store',signal:abort.signal});
         if(!response.ok)throw new Error(response.status===401?'Please sign in again.':'History could not be loaded.');
-        const data=await response.json();anchor=Date.now();if(latest){end=anchor;selected=null}
+        const data=await response.json();anchor=data.nowEpoch?data.nowEpoch*1000:Date.now();if(latest){end=anchor;selected=null}
         samples=data.samples.map(s=>({time:anchor-s[0]*1000,values:s.slice(1)}));draw();
         $('history-message').textContent=data.clockValid===false?'Waiting for a valid controller clock. Saved history will appear after time synchronization.':data.storageHealthy===false?'Flash storage unavailable: new readings may be lost on restart.':samples.length?'Readings are snapshots, not averages. Missing readings appear as gaps.':'Waiting for the first reading. Logging continues while this page is closed.';
       }catch(error){$('history-message').textContent='History unavailable · '+error.message+' Displayed history may be out of date. Retrying automatically.'}

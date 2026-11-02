@@ -83,6 +83,7 @@ public:
     }
     if (lamp != selected) {
       aim(0, now);
+      if (!durationMs) current=0;
       if (current > 0) return {lamp, int(std::lround(current))};
       if (!settling) { settling = true; offAt = now; }
       if (uint32_t(now - offAt) < SettleMs) return {-1, 0};

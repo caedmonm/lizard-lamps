@@ -273,8 +273,9 @@ void apiHistory() {
   const bool clockValid = wall>=1704067200 && wall<4102444800LL;
   const uint32_t now = clockValid ? uint32_t(wall) : 0;
   if (clockValid) temperatureHistory.prune(now);
+  char epochText[11];snprintf(epochText,sizeof(epochText),"%lu",static_cast<unsigned long>(now));
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  sendJson("{\"intervalSeconds\":60,\"retentionSeconds\":172800,\"clockValid\":" + String(jsonBool(clockValid)) +
+  sendJson("{\"nowEpoch\":" + String(epochText) + ",\"intervalSeconds\":60,\"retentionSeconds\":172800,\"clockValid\":" + String(jsonBool(clockValid)) +
            ",\"storageHealthy\":" + jsonBool(historyStorageHealthy) + ",\"samples\":[");
   String chunk;chunk.reserve(1200);
   if (clockValid) for (size_t i=0;i<temperatureHistory.size();++i) {

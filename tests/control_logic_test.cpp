@@ -74,6 +74,9 @@ int main() {
   instant.update(true,0,100,0,0);
   assert(instant.update(true,0,100,20,0).percent==100);
   assert(instant.update(true,0,0,21,0).percent==0);
+  instant.update(true,0,100,22,0);
+  assert(instant.update(true,1,100,23,0).percent==0); // Switching off has no residual ramp.
+  assert(instant.update(true,1,100,43,0).percent==100);
   // Existing ten-second cases exercise a custom duration and repeated-loop deadlines.
   LampFader fader;
   auto fade = [&](int selected, int demand, uint32_t now, bool enabled = true) {
