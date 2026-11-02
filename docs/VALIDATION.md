@@ -4,9 +4,12 @@
 
 The firmware compiles with `esp32:esp32:esp32`, Espressif core 3.3.12, OneWire 2.3.8, DallasTemperature 4.0.6, MycilaDimmer 3.0.1 and MycilaPulseAnalyzer 3.0.10.
 
+Temperature-history build: 1,131,069 bytes of flash (86% of the default app partition); global/static RAM 60,452 bytes (18%), leaving 267,228 bytes for heap and stacks before runtime allocations. The history ring is under 7 KB, enforced at compile time. Each history response temporarily allocates a ring snapshot and up to roughly 20 KB of JSON plus HTTP/string overhead. These compile-time figures are not a runtime heap measurement.
+
 Run `./tests/run.sh` with a C++17 compiler:
 
 - Pure control tests cover exact switch boundaries, midnight wrap, distinct start times, all minutes across representative schedules, active day/night targets at switching boundaries, adjustable proportional demand, full-on/full-off hysteresis boundaries, demand from either probe, state resets on faults/period/target/mode changes, invalid/non-finite/over-limit readings and strict form value validation. Minimum-floor tests cover cold startup without scheduled demand, basking-only floor demand, ambient independence with retained fault shutdown, exact 5°C day-assistance threshold and immediate release above it, night-only holding boundaries, repeat dips, normal-demand resumption, invalid minimum/readings and hardware fault shutdown/recovery. Output fade tests cover 10-second ramps, frequent updates, partial demand, sequential lamp changes, reversals, immediate fault shutdown and millisecond rollover.
+- History tests cover exact five-minute cadence, 577-sample capacity, strict 48-hour expiry, chronological rollover, uptime wrap, stale/missing readings and over-limit values. History API tests cover authentication, empty/data JSON and no-store headers. History client tests cover range changes, navigation, per-reading inspection, line gaps, empty state and retry errors.
 - Web tests compile the actual `DeviceWeb.cpp` against mocked ESP32 peripherals. They exercise provisioning, authentication checks, CSRF rejection, invalid or missing day/night targets, invalid schedules, persistence failure handling, saved state, probe swapping, escaped network names and reset confirmation, authenticated status/configuration/connection JSON, API write validation and null/escaped JSON values. They render all six page types to HTML.
 
 Network tests exercise the actual web networking code with controlled time: exact 60-second retry boundaries, repeated failures, recovery hotspot preservation, successful reconnection, another outage, immediate credential changes, millis rollover and no station attempts without saved credentials. These mocks do not establish successful real-world router reconnection.
@@ -26,6 +29,15 @@ c++ -std=c++17 -Itests/stubs tests/web_test.cpp -o /tmp/lizard-web-test
 ```
 
 These pages contain simulated readings and are previews only. Form submissions require the real controller.
+
+## History acceptance checks
+
+- Leave the board running for over 48 hours with the browser closed; verify five-minute spacing and automatic expiry. Check runtime free heap while repeatedly opening the overview and fetching history.
+- Unplug one probe: its series should show gaps while the other continues; reconnect it and verify recovery.
+- Test touch/keyboard range navigation, resizing and connection loss/recovery in desktop and mobile browsers.
+- Restart and swap probe labels separately; confirm the log clears and begins with correctly labelled readings. Verify logging without NTP and after clock synchronization.
+
+The desktop browser preview was checked with simulated 48-hour data, including Earlier navigation and reading inspection. These checks have not been performed on hardware for the history feature.
 
 ## Hardware acceptance checklist
 

@@ -4,6 +4,7 @@
 #include <OneWire.h>
 DeviceConfig deviceConfig;
 DeviceStatus deviceStatus;
+TemperatureHistory temperatureHistory;
 SemaphoreHandle_t stateMutex;
 bool maintenance = false;
 bool maintenanceAcknowledged = false;

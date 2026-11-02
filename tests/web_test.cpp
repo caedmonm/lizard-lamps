@@ -3,6 +3,7 @@
 #include <cassert>
 DeviceConfig deviceConfig;
 DeviceStatus deviceStatus;
+TemperatureHistory temperatureHistory;
 SemaphoreHandle_t stateMutex=1;
 bool maintenance=false,maintenanceAcknowledged=false,controllerRunning=false,resetRequested=false;
 DeviceConfig configSnapshot(){return deviceConfig;}
@@ -17,6 +18,16 @@ int main(int argc, char** argv){
  server.auth=false;server.routes["/favicon.svg"]();
  assert(server.code==200&&server.contentType=="image/svg+xml"&&server.body.find("<svg")!=String::npos);
  server.auth=true;
+ strcpy(deviceConfig.adminPassword,"password");
+ server.auth=false;server.routes["/api/history"]();assert(server.code==401);
+ server.auth=true;deviceConfig.adminPassword[0]=0;
+ server.routes["/api/history"]();assert(server.body.find("\"samples\":[]")!=String::npos);
+ temperatureHistory.record(testMillis,30,24,true);
+ testMillis+=TemperatureHistory::IntervalMs;
+ temperatureHistory.record(testMillis,-127,46,true);
+ server.routes["/api/history"]();assert(server.code==200);
+ std::ofstream(outputDirectory+"/history.json")<<server.body;
+ assert(server.headers["Cache-Control"]=="no-store");
  csrf="test-token"; hotspot=false;
  server.routes["/api/status"]();assert(server.body.find("null")!=String::npos);assert(server.contentType.find("application/json")!=String::npos);
  std::ofstream(outputDirectory+"/status-empty.json")<<server.body;
@@ -78,6 +89,7 @@ int main(int argc, char** argv){
  server.routes["/api/config"]();assert(server.body.find("\"minimumTemperature\":17.5")!=String::npos);
  deviceStatus.floorMode=Control::FloorMode::Recovery;deviceStatus.activeLamp=2;
  server.args={{"view","monitor"}};render();assert(server.body.find("Minimum recovery · Both lamps")!=String::npos);
+ assert(server.body.find("id='history-chart'")!=String::npos && server.body.find("value='48'")!=String::npos);
  server.routes["/api/status"]();assert(server.body.find("\"floorMode\":1")!=String::npos&&server.body.find("\"lampPower\":[")!=String::npos);
  deviceStatus.floorMode=Control::FloorMode::NightHold;
  server.args={{"view","monitor"}};render();assert(server.body.find("Minimum hold · Night lamp")!=String::npos);

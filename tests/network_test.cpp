@@ -2,6 +2,7 @@
 #include <cassert>
 DeviceConfig deviceConfig;
 DeviceStatus deviceStatus;
+TemperatureHistory temperatureHistory;
 SemaphoreHandle_t stateMutex = 1;
 bool maintenance=false, maintenanceAcknowledged=false, controllerRunning=false, resetRequested=false;
 DeviceConfig configSnapshot(){return deviceConfig;}

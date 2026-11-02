@@ -11,6 +11,7 @@ The controller now hosts its own interface on the ESP32. Its JSON API serves the
 - Independent day/night basking/ambient targets and greatest-deficit proportional heating.
 - Local daily schedule, midnight wrap, London daylight saving and clock fallback.
 - Wi-Fi recovery hotspot and authenticated, CSRF-protected JSON write endpoints with HTML form fallbacks.
+- Five-minute temperature snapshots retained for 48 hours in bounded RAM, with an interactive overview graph.
 - AJAX live monitoring, Wi-Fi connection progress and inline settings saves without page refreshes.
 - Stale/invalid/over-limit temperature shutdown and zero-cross fault shutdown.
 - Separate web task and hardware control loop, with output-off acknowledgment before configuration writes or reset.
@@ -25,7 +26,7 @@ Run the [validation checklist](VALIDATION.md) on the actual board, dimmer and pr
 
 - Multiple daily lamp-switch entries or a weekly schedule.
 - Configurable timezone and explicit heating-off periods.
-- Temperature history, visual graphs and alarms.
+- Persistent temperature history across restarts and configurable alarms.
 - Latched faults, watchdog/recovery policy and additional diagnostics.
 - OTA firmware updates with clear output-off behavior.
 - Probe replacement/pairing without resetting all settings.

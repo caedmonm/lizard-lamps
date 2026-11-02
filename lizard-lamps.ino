@@ -87,6 +87,10 @@ void loop() {
   if (memcmp(readingProbes, config.probes, sizeof(readingProbes)) != 0) {
     memcpy(readingProbes, config.probes, sizeof(readingProbes));
     sensorReadOK = false;
+    lastReading = 0;
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    temperatureHistory.clear();
+    xSemaphoreGive(stateMutex);
   }
   if (conversionPending && now - conversionStarted >= 750) {
     for (int i = 0; i < 2; ++i)
@@ -138,6 +142,9 @@ void loop() {
                                   (activeLamp >= 0 ? config.targets[activeLamp][probe] : NAN);
   if (stopped && power == 0) maintenanceAcknowledged = true;
   deviceStatus.lastReading = lastReading;
+  if (lastReading)
+    temperatureHistory.record(millis(), temperatures[0], temperatures[1],
+                              millis() - lastReading <= Control::StaleAfterMs);
   xSemaphoreGive(stateMutex);
   delay(2);
 }

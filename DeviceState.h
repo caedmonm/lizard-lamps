@@ -4,6 +4,7 @@
 #include <freertos/semphr.h>
 
 #include "ConfigData.h"
+#include "TemperatureHistory.h"
 
 struct DeviceStatus {
   float temperatures[2] = {NAN, NAN};
@@ -29,3 +30,5 @@ DeviceStatus statusSnapshot();
 bool loadConfig();
 bool saveConfig(const DeviceConfig& config);
 void startDeviceWeb();
+
+extern TemperatureHistory temperatureHistory;

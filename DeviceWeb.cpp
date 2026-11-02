@@ -1,3 +1,6 @@
+#include "WebHistory.h"
+#include <memory>
+#include <new>
 #include "DeviceState.h"
 #include "ControlLogic.h"
 #include "WebStyle.h"
@@ -106,7 +109,7 @@ String beginning() {
   html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Lizard Lamps</title><link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
   html += FPSTR(WebStyle); html += "</head><body>"; return html;
 }
-String ending() { return String(FPSTR(WebClient)) + "</body></html>"; }
+String ending() { return String(FPSTR(WebClient)) + FPSTR(WebHistory) + "</body></html>"; }
 void redirect(const String& path) {
   if (apiRequest) { sendJson("{\"ok\":true,\"next\":" + jsonString(path) + "}"); return; }
   server.sendHeader("Location", path); server.send(303, "text/plain", "Saved");
@@ -178,6 +181,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
       h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'><span data-temperature='" + String(i) + "'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "</span><span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong data-target='" + String(i) + "'>" + String(isfinite(s.targets[i]) ? String(s.targets[i], 1) + "°C" : "—") + "</strong></div></section>";
     }
     h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2 id='active-period'>" + String(s.floorMode == Control::FloorMode::Recovery ? String("Minimum recovery · Both lamps") : s.floorMode == Control::FloorMode::NightHold ? String("Minimum hold · Night lamp") : s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill' id='power-state'>" + String(s.power > 0 ? "Heating" : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat' id='power-percent'>" + String(s.power) + "%</span></div><div class='power'><span id='power-bar' style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Both probes control scheduled heating. Minimum protection uses only the basking probe: the night lamp heats, with day assistance only at least 5°C below the minimum.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span data-start='0'>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span data-start='1'>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Requested power is not a measured wattage.</p>";
+    h += "<section class='card' id='temperature-history'><h2>Temperature history</h2><p class='muted small'>Both probes · sampled every 5 minutes · last 48 hours. History clears on restart or when probe labels change.</p><div class='history-controls'><div><label for='history-window'>Time window</label><select id='history-window'><option value='1'>1 hour</option><option value='6' selected>6 hours</option><option value='12'>12 hours</option><option value='24'>24 hours</option><option value='48'>48 hours</option></select></div><button type='button' id='history-older' aria-label='Show earlier temperatures'>← Earlier</button><button type='button' id='history-newer' aria-label='Show later temperatures'>Later →</button><button type='button' id='history-latest'>Latest</button></div><label for='history-position' class='gap'>Explore the last 48 hours</label><input id='history-position' type='range' min='0' max='2520' step='5' value='2520'><p id='history-period' class='small muted'></p><svg id='history-chart' viewBox='0 0 800 280' role='img' aria-label='Temperature history for basking and ambient probes'></svg><div class='legend'><span><i class='swatch history-basking'></i>Basking spot</span><span><i class='swatch history-ambient'></i>Ambient</span></div><label for='history-reading' class='gap'>Inspect a reading</label><input id='history-reading' type='range' min='0' max='1' value='1' step='1'><p id='history-detail' class='small' role='status'></p><p id='history-message' class='small muted' role='status'>Loading temperature history…</p></section>";
   } else if (view == "schedule") {
     h += "<section class='card'><h2>Day & night schedule</h2><p class='muted'>Set when each period begins and the temperatures to maintain. The schedule repeats daily in Europe/London time.</p>" + timeline(c) + "</section>" + formStart("/schedule");
     const char* periods[] = {"Day · Lamp 1", "Night · Lamp 2"};
@@ -264,6 +268,27 @@ void apiStatus() {
            ",\"configured\":" + jsonBool(config.targetsSet && config.scheduleSet) +
            ",\"wifiConnected\":" + jsonBool(WiFi.status() == WL_CONNECTED) + "}");
 }
+void apiHistory() {
+  if (!authorized()) return;
+  // Heap snapshot avoids a large web-task stack frame. No JSON work holds the control mutex.
+  std::unique_ptr<TemperatureHistory> copy(new (std::nothrow) TemperatureHistory);
+  if (!copy) { jsonError("Temperature history is temporarily unavailable.", 503); return; }
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  uint32_t now = millis();
+  temperatureHistory.prune(now);
+  *copy = temperatureHistory;
+  xSemaphoreGive(stateMutex);
+  String body;
+  body.reserve(20000);
+  body = "{\"intervalSeconds\":300,\"retentionSeconds\":172800,\"samples\":[";
+  for (size_t i = 0; i < copy->size(); ++i) {
+    const auto& sample = copy->at(i);
+    if (i) body += ",";
+    body += "[" + String(int(uint32_t(now - sample.uptime) / 1000)) + "," +
+            jsonNumber(sample.temperatures[0]) + "," + jsonNumber(sample.temperatures[1]) + "]";
+  }
+  sendJson(body + "]}");
+}
 void apiConfig() {
   if (!authorized()) return;
   DeviceConfig config = configSnapshot();
@@ -290,6 +315,7 @@ void webTask(void*) {
     server.send(200, "image/svg+xml", FPSTR(WebIcon));
   });
   server.on("/api/status", HTTP_GET, apiStatus);
+  server.on("/api/history", HTTP_GET, apiHistory);
   server.on("/api/connection", HTTP_GET, apiConnection);
   server.on("/api/config", HTTP_GET, apiConfig);
   server.on("/", HTTP_GET, [] { if (authorized()) render(); });

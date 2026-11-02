@@ -147,6 +147,14 @@ Run tests with a C++17 compiler and Python 3 (Node.js enables the embedded AJAX 
 
 **Device → Dashboard access** lets you enable or disable password protection later. Existing saved passwords stay enabled after an upgrade. Leave the password blank to keep an existing password; enabling from an unprotected state requires a new password. Disabling clears the saved dashboard password and allows anyone on the connected network or recovery hotspot to manage the device.
 
+## Temperature history
+
+The overview graphs both **basking spot** and **ambient** probe readings. The controller records one paired snapshot every five minutes, starting with its first sensor reading, and automatically discards readings older than 48 hours. Logging continues without Wi-Fi, a valid wall clock or an open dashboard. Disconnected, invalid or stale readings appear as gaps; real readings above the heating cutoff remain visible.
+
+Choose a 1, 6, 12, 24 or 48-hour window, use Earlier/Later or the timeline slider to explore, and select Latest to follow new readings. Hover/touch the chart or use the keyboard-accessible reading slider to inspect values and dates. Times are shown in Europe/London, using the browser clock to date uptime-based samples. The history refreshes once a minute while the page is visible.
+
+Storage is a fixed RAM ring of **577 paired samples** (including both ends of 48 hours), using **less than 7 KB**. There are no periodic flash writes. History clears on restart, power loss or a probe-label swap. It does not survive a firmware update. Sampling and expiry use uptime and remain stable across NTP corrections and the ESP32 millisecond timer rollover; long sampling delays leave gaps rather than invented readings.
+
 ## On-device API
 
 The browser uses these same-origin endpoints with dashboard Digest authentication when password protection is enabled. Responses are JSON and are not cached. Wi-Fi and dashboard passwords are never returned by the read endpoints.
@@ -155,6 +163,7 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | --- | --- | --- |
 | GET | `/api/status` | Temperatures, active targets, selected lamp, requested power, clock and health |
 | GET | `/api/connection` | Wi-Fi progress, network name, LAN IP and hotspot state |
+| GET | `/api/history` | Last 48 hours: `samples` as `[ageSeconds, baskingC, ambientC]`, oldest first; missing values are `null` |
 | GET | `/api/config` | Day/night start times, targets, probe identities and protection state |
 | POST | `/api/schedule` | Save both periods and all four targets together |
 | POST | `/api/wifi` | Save Wi-Fi details and initial dashboard protection choice |
@@ -175,6 +184,8 @@ Missing/disconnected readings are JSON `null`. The client shows a connection-los
 - `ConfigData.h`: per-period configuration, validation and migration of earlier saved settings.
 - `DeviceState.h/.cpp`: synchronized configuration/status and persistent storage.
 - `DeviceWeb.cpp`: setup, networking, clock, server-rendered pages and JSON API endpoints.
+- `TemperatureHistory.h`: bounded rolling temperature log with uptime-based sampling and retention.
+- `WebHistory.h`: embedded SVG history graph, range navigation and reading inspection.
 - `WebClient.h`: AJAX polling, live DOM updates, inline settings saves and connection feedback.
 - `WebStyle.h`: embedded responsive design.
 - [Safety and limitations](docs/SAFETY.md), [validation](docs/VALIDATION.md), [roadmap](docs/ROADMAP.md), [contributing](CONTRIBUTING.md).
