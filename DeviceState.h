@@ -7,6 +7,10 @@
 #include "TemperatureHistory.h"
 
 struct DeviceStatus {
+  bool testActive = false;
+  int testLamp = 0;
+  int testPercent = 0;
+  uint32_t testRemainingSeconds = 0;
   float temperatures[2] = {NAN, NAN};
   bool sensorsHealthy = false;
   bool dimmerOnline = false;
@@ -21,6 +25,14 @@ struct DeviceStatus {
 };
 extern DeviceConfig deviceConfig;
 extern DeviceStatus deviceStatus;
+// RAM only; both web and control tasks access this under stateMutex.
+struct LampTest {
+  static constexpr uint32_t TimeoutMs = 5UL * 60 * 1000;
+  bool active = false;
+  int lamp = 0, percent = 0;
+  uint32_t adjustedAt = 0;
+};
+extern LampTest lampTest;
 extern SemaphoreHandle_t stateMutex;
 extern bool maintenance;
 extern bool maintenanceAcknowledged;

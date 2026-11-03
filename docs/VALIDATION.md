@@ -37,7 +37,7 @@ These pages contain simulated readings and are previews only. Form submissions r
 - Leave the board running for over 48 hours with the browser closed; verify one-minute spacing and automatic expiry. Check runtime free heap while repeatedly opening the overview and fetching history.
 - Unplug one probe: its series should show gaps while the other continues; reconnect it and verify recovery.
 - Test touch/keyboard range navigation, resizing and connection loss/recovery in desktop and mobile browsers.
-- Power-cycle the board and verify committed records return after clock synchronization, with genuine downtime gaps. Cut power during a save and confirm older records remain readable. Swap probe labels and confirm history clears. Verify a clock/storage failure is shown in the chart. Check flash-save pauses do not restart the fade and assess their physical effect on the lamps.
+- Power-cycle the board and verify committed records return after clock synchronization, with genuine downtime gaps. Cut power during a save and confirm older records remain readable. Swap probe labels and confirm history clears. Verify a clock/storage failure is shown in the chart. Verify no routine flash-save pause occurs for ten minutes, then one batch pause persists all minute samples; restart before a flush to confirm only unsaved minutes are lost. Check flash-save pauses do not restart the fade and assess their physical effect on the lamps.
 
 The desktop browser preview was checked with simulated 48-hour, one-minute data, including all six series, percentage/temperature axes, series toggling, Earlier navigation, reading inspection and the configurable fade field. The PI settings screen and fade toggle were also checked in a desktop browser using rendered test fixtures. These checks have not been performed on hardware for the history feature.
 
@@ -83,3 +83,10 @@ These are code findings, not reproduction of the reported hardware incident.
 - Measure both dimmer outputs during flashing, validation, reboot, interrupted uploads and rejected images. Verify minimum protection pauses while flashing, control resumes after failure, and the ordinary startup checks gate heating after reboot.
 - Check dashboard Digest negotiation in actual browsers, CSRF rejection, wrong-chip/invalid/oversized images, unplugged Wi-Fi, upload timeout and USB recovery. Verify settings and saved history survive successful updates. A booting but broken application has no automatic rollback in this implementation.
 - Observe a day/night transition on the graph: one target per probe, correct historical values after schedule edits, and only a basking floor target during minimum protection. Legacy readings must retain temperatures/outputs with unavailable active targets.
+
+### Flicker diagnosis and manual test mode
+
+- On hardware, start Settings → Lamp brightness test at 0%, then compare fixed outputs such as 10%, 25%, 50%, 75% and 100% on each bulb. Record bulb/dimmer models, requested output and flicker pattern; verify switching never overlaps the two lamps outside minimum recovery.
+- Verify slider changes hold a steady output without PI changes or fades, stop returns to the schedule, and five minutes without adjustment returns automatically even if the browser is disconnected. Restart must not restore testing.
+- Verify either probe reaching 45°C, disconnection/staleness and lost zero-cross detection cancel testing; configuration writes, firmware updates and reset stop it. Confirm minimum recovery can override a 0% test and the UI shows the override. History save pauses should resume an unexpired test without resetting its timeout.
+- Native tests cover manual output, switching, zero output, minimum override, history pauses, faults, explicit stop and timeout across millis rollover; HTTP tests cover authentication, CSRF, range checks and hardware availability. These do not establish physical flicker performance.

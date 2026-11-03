@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync('WebClient.h','utf8').split('<script>')[1].split('</script>')[0];
 const status={temperatures:[29.4,null],targets:[30,24],activeLamp:0,power:30,sensorsHealthy:true,dimmerOnline:true,clockValid:true,configured:true,clock:'12:00 BST',wifiConnected:true};
-function fixture(connecting=false,admin=false,control=false){
+function fixture(connecting=false,admin=false,control=false,test=false){
  const ids={},temps=[0,1].map(i=>({dataset:{temperature:String(i)},textContent:''})),targets=[0,1].map(i=>({dataset:{target:String(i)},textContent:''}));
  for(const id of ['live-message','live-update','controller-clock','connectivity','active-period','power-state','power-percent','heating-fault','clock-action','connection-error'])ids[id]={hidden:false,textContent:'',style:{}};
  if(connecting){for(const id of ['connection-title','connection-waiting','connection-success','connection-network'])ids[id]={hidden:false,textContent:''};}else ids['power-bar']={style:{}};
@@ -11,6 +11,12 @@ function fixture(connecting=false,admin=false,control=false){
  if(admin){form.action='http://device/admin';form.getAttribute=()=>'/admin';form.querySelector=s=>s==='[data-admin-password]'?password:current;}
  const rangeInput={disabled:false},range={hidden:false,querySelector:()=>rangeInput},dimmingToggle={value:'1',form,addEventListener:(name,fn)=>{dimmingToggle.change=fn}};
  if(control){form.action='http://device/control';form.getAttribute=()=>'/control';form.querySelector=()=>range;form.fields={csrf:'token',dimmingEnabled:'1',fadeSeconds:'3',proportionalBand:'2',integralSeconds:'300',minimumTemperature:'17.5'};}
+ if(test){
+   form.action='http://device/test';form.getAttribute=()=>'/test';form.fields={csrf:'token',enabled:'1',lamp:'0',percent:'37'};
+   for(const id of ['test-percent','test-lamp'])ids[id]={value:id==='test-percent'?'37':'0',form,addEventListener:(name,fn)=>{ids[id][name]=fn}};
+   for(const id of ['test-value','test-output','test-banner'])ids[id]={hidden:false,textContent:''};
+   form.requestSubmit=()=>form.submit({preventDefault(){}});
+ }
  let fail=false,adminResponse={ok:true,adminProtected:false,reauthenticate:false};const calls=[],timers=[],navigations=[];
  const context={document:{hidden:false,getElementById:id=>ids[id],querySelectorAll:s=>s==='[data-dimming-toggle]'?(control?[dimmingToggle]:[]):s==='[data-admin-toggle]'?(admin?[toggle]:[]):s==='form:not(#firmware-form)'?[form]:s==='[data-temperature]'?temps:s==='[data-target]'?targets:[]},location:{href:'http://device/',assign:url=>navigations.push(url)},URL,URLSearchParams,AbortController,Date,FormData:class{*[Symbol.iterator](){for(const [key,value] of Object.entries(form.fields)){if(control&&(key==='fadeSeconds'&&rangeInput.disabled))continue;yield [key,value]}}},setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length},clearTimeout:()=>{},fetch:async(url,options)=>{calls.push({url,options});if(fail)throw new Error('Offline');return {ok:true,status:200,json:async()=>url==='/api/status'?status:url==='/api/connection'?{connected:true,ssid:'Home',ip:'192.168.1.84'}:url==='/api/config'?{probes:['a','b'],starts:['07:00','19:00']}:admin?adminResponse:{ok:true,next:'/?view=monitor'}}}};
  vm.runInNewContext(source,context);return{rangeInput,range,dimmingToggle,ids,temps,targets,form,button,calls,timers,password,current,toggle,navigations,setAdminResponse:value=>{adminResponse=value},setFail:()=>{fail=true}};
@@ -42,5 +48,16 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
  assert.equal(saved.options.body.get('minimumTemperature'),'17.5');assert.equal(saved.options.body.get('integralSeconds'),'300');
  assert(heating.calls.some(c=>c.url==='/api/config'));assert.equal(heating.button.disabled,false);
  heating.dimmingToggle.value='1';heating.dimmingToggle.change();assert.equal(heating.range.hidden,false);assert.equal(heating.rangeInput.disabled,false);
+ status.testActive=true;status.testLamp=0;status.testPercent=37;status.testRemainingSeconds=299;status.lampPower=[37,0];
+ status.clockValid=false;status.configured=false;
+ const manual=fixture(false,false,false,true);await flush();
+ assert.equal(manual.ids['test-banner'].hidden,false);assert.match(manual.ids['active-period'].textContent,/Manual test/);
+ assert.equal(manual.ids['heating-fault'].hidden,true);assert.match(manual.ids['test-output'].textContent,/37% \/ 0%/);
+ manual.ids['test-percent'].value='42';manual.ids['test-percent'].input();assert.equal(manual.ids['test-value'].textContent,'42');
+ manual.form.fields.percent='42';manual.ids['test-percent'].change();await flush();
+ assert.equal(manual.calls.find(c=>c.url==='/api/test').options.body.get('percent'),'42');
+ status.floorMode=1;const overridden=fixture(false,false,false,true);await flush();assert.match(overridden.ids['test-banner'].textContent,/overrides/);
+ status.testActive=false;status.floorMode=0;const ended=fixture(false,false,false,true);await flush();
+ assert.equal(ended.ids['test-banner'].hidden,true);ended.ids['test-percent'].change();assert.equal(ended.calls.filter(c=>c.url==='/api/test').length,0);
  console.log('AJAX polling, DOM updates, period changes, form saves, errors and connection progress passed with mocks.');
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -85,5 +85,31 @@ int main() {
   read(25); assert(deviceStatus.power == 0);
   read(14); assert(lamp2.duty == 1); // Floor still works without a clock.
   read(14, -127); assert(deviceStatus.power == 0);
+  // Manual tests work without clock/schedule, hold exact output and switch without overlap.
+  read(25, 23);deviceConfig.scheduleSet=false;
+  auto manual = [&](int lamp, int percent) {lampTest={true,lamp,percent,uint32_t(testMillis)};};
+  manual(0,37);runFor(100);assert(deviceStatus.testActive&&deviceStatus.power==37&&lamp1.duty==0.37f);
+  runFor(5000);assert(deviceStatus.power==37&&std::isnan(deviceStatus.targets[0]));
+  manual(1,63);loop();assert(lamp1.duty==0&&lamp2.duty==0);
+  runFor(100);assert(lamp2.duty==0.63f&&lamp1.duty==0);
+  manual(1,0);runFor(100);assert(deviceStatus.testActive&&deviceStatus.power==0);
+  manual(0,100);read(14,23);assert(deviceStatus.testActive&&lamp1.duty==0&&lamp2.duty==1);
+  read(25,23);assert(deviceStatus.power==100&&lamp1.duty==1&&lamp2.duty==0);
+  maintenance=historyMaintenance=true;runFor(100);assert(lampTest.active&&deviceStatus.power==0);
+  maintenance=historyMaintenance=false;runFor(100);assert(deviceStatus.testActive&&deviceStatus.power==100);
+  for (int fault=0;fault<5;++fault) {
+    manual(0,50);runFor(100);
+    if(fault==0)pulseAnalyzer.online=false;
+    if(fault==1)maintenance=true;
+    if(fault==2)resetRequested=true;
+    if(fault==3){lastReading=testMillis-4000;conversionStarted=testMillis;conversionPending=true;}
+    if(fault==4){temperatures[1]=45;sensorReadOK=false;}
+    loop();assert(!lampTest.active&&lamp1.duty==0&&lamp2.duty==0);
+    pulseAnalyzer.online=true;maintenance=resetRequested=false;read(25,23);
+  }
+  manual(0,30);runFor(100);lampTest.active=false;runFor(100);assert(!deviceStatus.testActive&&deviceStatus.power==0);
+  // Timeout uses elapsed milliseconds, including across rollover.
+  testMillis=0xffffff00UL;manual(0,30);runFor(1000);assert(deviceStatus.testActive);
+  runFor(LampTest::TimeoutMs);assert(!lampTest.active&&!deviceStatus.testActive&&deviceStatus.power==0);
   std::cout << "Actual control loop: regulation, history pause, transitions, floor, ceiling, clock loss and fault shutdown passed with mocked hardware.\n";
 }

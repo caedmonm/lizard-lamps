@@ -12,6 +12,9 @@ uint8_t historyProbes[2][8] = {};
 bool loaded = false;
 uint32_t savedThrough = 0, lastAttempt = 0;
 bool attempted = false;
+constexpr uint32_t FlushIntervalMs = 10UL * 60 * 1000;
+uint32_t lastFlush = 0;
+bool flushPending = false;
 
 bool blankPartition() {
   const esp_partition_t* partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
@@ -28,6 +31,7 @@ bool blankPartition() {
 }
 }
 void startHistoryStorage() {
+  lastFlush = millis();
   // Called before dimmer initialization. Never format a nonblank/unmountable partition.
   if (!LittleFS.begin(false)) {
     if (!blankPartition() || !LittleFS.format() || !LittleFS.begin(false)) {
@@ -64,7 +68,7 @@ void serviceTemperatureHistory() {
       endFlashMaintenance();
       if (!erased) return;
     }
-    loaded=false;attempted=false;
+    loaded=false;attempted=false;flushPending=false;lastFlush=millis();
     memcpy(historyProbes,config.probes,sizeof(historyProbes));
   }
   const time_t wall = time(nullptr);
@@ -79,21 +83,29 @@ void serviceTemperatureHistory() {
   if (status.lastReading) temperatureHistory.record(now,status.temperatures[0],status.temperatures[1],
                                                      millis()-status.lastReading<=Control::StaleAfterMs,
                                                      config.targets,status.lampPower,config.targetsSet && config.scheduleSet,
-                                                     status.activeLamp, status.floorMode != Control::FloorMode::Normal ? config.minimumTemperature : NAN);
+                                                     status.testActive ? -1 : status.activeLamp, status.floorMode != Control::FloorMode::Normal ? config.minimumTemperature : NAN);
   temperatureHistory.prune(now);
   if (!historyStorageReady || !temperatureHistory.size()) return;
+  if (!flushPending && uint32_t(millis()-lastFlush)<FlushIntervalMs) return;
   // If the wall clock moved backwards, allow the corrected timeline to be saved again.
   if (savedThrough>now) savedThrough=now-now%60-60;
   if (attempted && uint32_t(millis()-lastAttempt)<10000) return;
-  for (size_t i=0;i<temperatureHistory.size();++i) {
+  size_t first=0;
+  while (first<temperatureHistory.size() && temperatureHistory.at(first).epoch<=savedThrough) ++first;
+  if (first==temperatureHistory.size()) { lastFlush=millis();flushPending=false;return; }
+  lastAttempt=millis();attempted=true;flushPending=true;
+  if (!beginFlashMaintenance(true)) { historyStorageHealthy=false; return; }
+  bool saved=true, complete=true;
+  // A long storage outage must not turn catch-up into an unbounded output pause.
+  constexpr size_t MaxBatchRecords=16;
+  for (size_t i=first;i<temperatureHistory.size();++i) {
+    if (i-first==MaxBatchRecords) { complete=false;break; }
     const auto& sample=temperatureHistory.at(i);
-    if (sample.epoch<=savedThrough) continue;
-    lastAttempt=millis();attempted=true;
-    if (!beginFlashMaintenance(true)) { historyStorageHealthy=false; return; }
-    const bool saved=store.save(sample,historyProbes);
-    endFlashMaintenance();
-    historyStorageHealthy=saved;
-    if (saved) savedThrough=sample.epoch;
-    return; // At most one short save per pass; failed writes retry after ten seconds.
+    saved=store.save(sample,historyProbes);
+    if (!saved) break;
+    savedThrough=sample.epoch;
   }
+  endFlashMaintenance();
+  historyStorageHealthy=saved;
+  if (saved && complete) { lastFlush=millis();flushPending=false; }
 }

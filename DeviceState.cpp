@@ -4,6 +4,7 @@
 #include <OneWire.h>
 DeviceConfig deviceConfig;
 DeviceStatus deviceStatus;
+LampTest lampTest;
 TemperatureHistory temperatureHistory;
 SemaphoreHandle_t stateMutex;
 bool maintenance = false;
@@ -71,6 +72,7 @@ bool beginFlashMaintenance(bool forHistory) {
   // Hold the outputs off while flash is written; only the control loop owns dimmer hardware.
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   maintenance = true;
+  if (!forHistory) lampTest.active = false;
   historyMaintenance = forHistory;
   maintenanceAcknowledged = false;
   xSemaphoreGive(stateMutex);

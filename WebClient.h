@@ -4,6 +4,7 @@ const char WebClient[] PROGMEM = R"JS(
 <script>
 (()=>{
   const $=id=>document.getElementById(id);
+  let testActive=false;
   const text=(id,value)=>{if($(id))$(id).textContent=value};
   const message=(value,error=false)=>{const e=$('live-message');if(e){e.hidden=!value;e.textContent=value;e.className='notice '+(error?'error':'success')}};
   async function request(url,options={}){
@@ -17,13 +18,17 @@ const char WebClient[] PROGMEM = R"JS(
     }finally{clearTimeout(timeout)}
   }
   function updateStatus(s){
+    testActive=!!s.testActive;
+    const testLabel='Manual test · '+(s.testLamp===0?'Day · Lamp 1':'Night · Lamp 2')+' · '+s.testPercent+'% requested · '+s.testRemainingSeconds+'s remaining';
+    if($('test-banner')){$('test-banner').hidden=!testActive;$('test-banner').textContent=testLabel+(s.floorMode?' · Minimum-temperature protection overrides output':'')}
+    text('test-output',testActive?testLabel+' · Actual requested output: '+s.lampPower[0]+'% / '+s.lampPower[1]+'%':'Test inactive · normal control');
     document.querySelectorAll('[data-temperature]').forEach(e=>{const v=s.temperatures[Number(e.dataset.temperature)];e.textContent=v===null?'—':Number(v).toFixed(1)});
     document.querySelectorAll('[data-target]').forEach(e=>{const v=s.targets[Number(e.dataset.target)];e.textContent=v===null?'—':Number(v).toFixed(1)+'°C'});
     text('controller-clock',s.clock);text('connectivity',s.wifiConnected?'● Wi-Fi connected':'○ Wi-Fi offline');
-    text('active-period',s.floorMode===1?'Minimum recovery · Both lamps':s.floorMode===2?'Minimum hold · Night lamp':s.activeLamp===0?'Day · Lamp 1':s.activeLamp===1?'Night · Lamp 2':'Waiting for schedule');
-    text('power-state',s.targetLimited?'Cooling down':s.power>0?(s.floorMode?'Heating':'Regulating'):'Output off');text('power-percent',s.power+'%');
+    text('active-period',s.floorMode===1?'Minimum recovery · Both lamps':s.floorMode===2?'Minimum hold · Night lamp':testActive?'Manual test · '+(s.testLamp===0?'Day · Lamp 1':'Night · Lamp 2'):s.activeLamp===0?'Day · Lamp 1':s.activeLamp===1?'Night · Lamp 2':'Waiting for schedule');
+    text('power-state',s.targetLimited?'Cooling down':s.power>0?(s.floorMode?'Heating':testActive?'Testing':'Regulating'):'Output off');text('power-percent',s.power+'%');
     if($('power-bar'))$('power-bar').style.width=Math.max(0,Math.min(100,s.power))+'%';
-    const fault=!s.sensorsHealthy?'check both temperature probes and temperature limits.':!s.dimmerOnline?'zero-cross detection is unavailable.':!s.clockValid&&!s.floorMode?'waiting for a valid clock. Use your browser time below, or wait for network time.':!s.configured&&!s.floorMode?'finish saving the day and night schedule.':'';
+    const fault=!s.sensorsHealthy?'check both temperature probes and temperature limits.':!s.dimmerOnline?'zero-cross detection is unavailable.':!s.clockValid&&!s.floorMode&&!testActive?'waiting for a valid clock. Use your browser time below, or wait for network time.':!s.configured&&!s.floorMode&&!testActive?'finish saving the day and night schedule.':'';
     if($('heating-fault')){$('heating-fault').hidden=!fault;$('heating-fault').textContent=fault?'Heating paused — '+fault:''}
     if($('clock-action'))$('clock-action').hidden=s.clockValid;
     text('live-update','Live · Updated '+new Date().toLocaleTimeString());
@@ -56,8 +61,14 @@ const char WebClient[] PROGMEM = R"JS(
     const update=()=>{password.disabled=!toggle.checked;password.required=toggle.checked&&current.value!=='1'};
     toggle.addEventListener('change',update);update();
   });
+  if($('test-percent')){
+    const slider=$('test-percent');
+    slider.addEventListener('input',()=>text('test-value',slider.value));
+    [slider,$('test-lamp')].forEach(input=>input.addEventListener('change',()=>{if(testActive)slider.form.requestSubmit()}));
+  }
   document.querySelectorAll('form:not(#firmware-form)').forEach(form=>form.addEventListener('submit',async event=>{
-    event.preventDefault();if(form.dataset.busy)return;form.dataset.busy='1';
+    event.preventDefault();if(form.dataset.busy){if(form.getAttribute('action')==='/test')form.dataset.queued='1';return}form.dataset.busy='1';
+    if(form.getAttribute('action')==='/test'&&$('test-percent')&&form!==$('test-percent').form)delete $('test-percent').form.dataset.queued;
     const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
     form.querySelectorAll('.epoch').forEach(e=>e.value=Math.floor(Date.now()/1000));
     message('Saving…');
@@ -70,11 +81,11 @@ const char WebClient[] PROGMEM = R"JS(
       }
       if(data.next==='/connecting'){location.assign(data.next);return}
       if(data.resetting){message('Heating is stopping. The device will erase its data and restart. Join the open LizardLamps hotspot and visit http://192.168.4.1.');form.reset();return}
-      message('Your changes have been saved.');
+      message(form.getAttribute('action')==='/test'?'Lamp test command applied.':'Your changes have been saved.');
       if(form.getAttribute('action')==='/schedule'||form.getAttribute('action')==='/probes'||form.getAttribute('action')==='/control')updateConfig(await request('/api/config'));
-      if($('power-bar'))updateStatus(await request('/api/status'));
+      if($('controller-clock'))updateStatus(await request('/api/status'));
     }catch(error){message(error.name==='AbortError'?'The controller did not respond. Check your connection before retrying.':error.message,true)}
-    finally{delete form.dataset.busy;buttons.forEach(b=>b.disabled=false)}
+    finally{delete form.dataset.busy;buttons.forEach(b=>b.disabled=false);if(form.dataset.queued){delete form.dataset.queued;form.requestSubmit()}}
   }));
   const connecting=!!$('connection-title'),monitoring=!!$('controller-clock')&&!connecting;
   if(monitoring||connecting){

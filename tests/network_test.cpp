@@ -2,6 +2,7 @@
 #include <cassert>
 DeviceConfig deviceConfig;
 DeviceStatus deviceStatus;
+LampTest lampTest;
 TemperatureHistory temperatureHistory;
 bool historyStorageHealthy=true;
 void serviceTemperatureHistory(){}

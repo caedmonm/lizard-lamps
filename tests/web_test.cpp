@@ -3,6 +3,7 @@
 #include <cassert>
 DeviceConfig deviceConfig;
 DeviceStatus deviceStatus;
+LampTest lampTest;
 TemperatureHistory temperatureHistory;
 bool historyStorageHealthy=true;
 void serviceTemperatureHistory(){}
@@ -43,6 +44,28 @@ int main(int argc, char** argv){
  std::ofstream(outputDirectory+"/history-full.json")<<server.body;
  temperatureHistory.clear();
  csrf="test-token"; hotspot=false;
+ // Manual test writes require authentication, CSRF and healthy, fresh hardware.
+ auto testArgs=[&] {server.args={{"csrf",csrf},{"enabled","1"},{"lamp","0"},{"percent","37"}};};
+ strcpy(deviceConfig.adminPassword,"password");
+ testArgs();server.auth=false;server.routes["/api/test"]();assert(server.code==401&&!lampTest.active);server.auth=true;
+ testArgs();server.args["csrf"]="wrong";server.routes["/api/test"]();assert(server.code==403&&!lampTest.active);
+ deviceConfig.adminPassword[0]=0;
+ for(const char* bad:{"", "-1", "101", "37.5", "nan", "10x", " 5", "1000"}) {
+   testArgs();server.args["percent"]=bad;server.routes["/api/test"]();assert(server.code==422&&!lampTest.active);
+ }
+ testArgs();server.args["lamp"]="2";server.routes["/api/test"]();assert(server.code==422);
+ testArgs();server.args["enabled"]="yes";server.routes["/api/test"]();assert(server.code==422);
+ testArgs();server.routes["/api/test"]();assert(server.code==409&&!lampTest.active);
+ deviceStatus.sensorsHealthy=deviceStatus.dimmerOnline=true;deviceStatus.lastReading=testMillis;
+ testArgs();server.routes["/api/test"]();assert(server.code==200&&lampTest.active&&lampTest.percent==37&&lampTest.lamp==0);
+ testArgs();server.args["lamp"]="1";server.args["percent"]="100";server.routes["/api/test"]();assert(lampTest.percent==100&&lampTest.lamp==1);
+ testArgs();server.args["percent"]="0";server.routes["/api/test"]();assert(server.code==200&&lampTest.active&&lampTest.percent==0);
+ deviceStatus.lastReading=testMillis-4000;
+ testArgs();server.routes["/api/test"]();assert(server.code==409);
+ deviceStatus.sensorsHealthy=false;
+ server.args={{"csrf",csrf},{"enabled","0"}};server.routes["/api/test"]();assert(server.code==200&&!lampTest.active);
+ deviceStatus=DeviceStatus{};
+
  server.routes["/api/status"]();assert(server.body.find("null")!=String::npos);assert(server.contentType.find("application/json")!=String::npos);
  std::ofstream(outputDirectory+"/status-empty.json")<<server.body;
 
