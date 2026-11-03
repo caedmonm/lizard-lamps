@@ -16,10 +16,17 @@ public:
     int16_t temperatures[2];
     int16_t targets[2][2];
     uint8_t power[2];
+    // Active-target metadata; zero in records written before browser OTA support.
     uint16_t reserved = 0;
   };
   static int16_t encode(float value) { return std::isfinite(value) ? int16_t(std::lround(value*10)) : Missing; }
   static float decode(int16_t value) { return value == Missing ? NAN : value/10.0f; }
+  static float activeTarget(const Sample& sample, int probe) {
+    if (sample.reserved & 0x2000)
+      return probe == 0 ? (sample.reserved & 0x1fff) / 10.0f : NAN;
+    if (sample.reserved & 0x4000) return decode(sample.targets[sample.reserved & 1][probe]);
+    return NAN; // Legacy records do not identify their active period.
+  }
   static bool validClock(uint32_t now) { return now >= 1704067200UL && now < 4102444800UL; }
   void clear() { head_ = count_ = 0; }
   void prune(uint32_t now) {
@@ -31,7 +38,7 @@ public:
     }
   }
   bool record(uint32_t now, float basking, float ambient, bool fresh,
-              const float targets[2][2], const int power[2], bool configured = true) {
+              const float targets[2][2], const int power[2], bool configured = true, int activeLamp = -1, float floorTarget = NAN) {
     if (!validClock(now)) return false;
     const uint32_t minute = now - now % IntervalSeconds;
     prune(minute);
@@ -45,6 +52,9 @@ public:
       for (int probe=0;probe<2;++probe)
         sample.targets[period][probe]=configured?encode(targets[period][probe]):Missing;
     }
+    sample.reserved = 0x8000;
+    if (std::isfinite(floorTarget)) sample.reserved |= 0x2000 | uint16_t(encode(floorTarget));
+    else if (configured && activeLamp >= 0 && activeLamp < 2) sample.reserved |= 0x4000 | uint16_t(activeLamp);
     append(sample);
     return true;
   }

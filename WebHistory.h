@@ -12,8 +12,7 @@ const char WebHistory[] PROGMEM = R"JS(
   const series=[
     {name:'Basking',color:'#28583e'},{name:'Ambient',color:'#8260ac'},
     {name:'Lamp 1 output',color:'#d06c1b',power:true},{name:'Lamp 2 output',color:'#286bb0',power:true},
-    {name:'Day basking target',color:'#639b41'},{name:'Day ambient target',color:'#bc82ad'},
-    {name:'Night basking target',color:'#ab8841'},{name:'Night ambient target',color:'#3b9e9d'}
+    {name:'Basking target',color:'#639b41'},{name:'Ambient target',color:'#bc82ad'}
   ];
   const shown=series.map(()=>true);
   const duration=()=>Number(windowControl.value)*60*60*1000;
@@ -101,7 +100,7 @@ const char WebHistory[] PROGMEM = R"JS(
         const response=await fetch('/api/history',{credentials:'same-origin',cache:'no-store',signal:abort.signal});
         if(!response.ok)throw new Error(response.status===401?'Please sign in again.':'History could not be loaded.');
         const data=await response.json();anchor=data.nowEpoch?data.nowEpoch*1000:Date.now();if(latest){end=anchor;selected=null}
-        samples=data.samples.map(s=>({time:anchor-s[0]*1000,values:s.slice(1)}));draw();
+        samples=data.samples.map(s=>({time:anchor-s[0]*1000,values:[...s.slice(1,5),s[9]??null,s[10]??null]}));draw();
         $('history-message').textContent=data.clockValid===false?'Waiting for a valid controller clock. Saved history will appear after time synchronization.':data.storageHealthy===false?'Flash storage unavailable: new readings may be lost on restart.':samples.length?'Readings are snapshots, not averages. Missing readings appear as gaps.':'Waiting for the first reading. Logging continues while this page is closed.';
       }catch(error){$('history-message').textContent='History unavailable · '+error.message+' Displayed history may be out of date. Retrying automatically.'}
       finally{clearTimeout(timeout)}

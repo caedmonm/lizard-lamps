@@ -56,7 +56,7 @@ const char WebClient[] PROGMEM = R"JS(
     const update=()=>{password.disabled=!toggle.checked;password.required=toggle.checked&&current.value!=='1'};
     toggle.addEventListener('change',update);update();
   });
-  document.querySelectorAll('form').forEach(form=>form.addEventListener('submit',async event=>{
+  document.querySelectorAll('form:not(#firmware-form)').forEach(form=>form.addEventListener('submit',async event=>{
     event.preventDefault();if(form.dataset.busy)return;form.dataset.busy='1';
     const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
     form.querySelectorAll('.epoch').forEach(e=>e.value=Math.floor(Date.now()/1000));

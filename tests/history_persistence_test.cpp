@@ -12,13 +12,16 @@ int main() {
  FakeFS::mount=false;startHistoryStorage();assert(historyStorageReady&&FakeFS::formats==1);
  deviceConfig.targetsSet=true;deviceConfig.probesSet=true;
  deviceStatus.lastReading=testMillis;deviceStatus.temperatures[0]=29.5;deviceStatus.temperatures[1]=23;
- deviceStatus.lampPower[0]=74;
+ deviceStatus.lampPower[0]=74;deviceStatus.activeLamp=1;deviceConfig.scheduleSet=true;
+ deviceConfig.targets[1][0]=20;deviceConfig.targets[1][1]=18;
  FakeFS::onWrite=[] {assert(maintenance&&historyMaintenance);};
  serviceTemperatureHistory();assert(temperatureHistory.size()==1&&historyStorageHealthy&&!maintenance);
  assert(temperatureHistory.at(0).power[0]==74);
  // A fresh RAM state restores from flash without requiring another measurement.
  loaded=false;temperatureHistory.clear();savedThrough=0;deviceStatus.lastReading=0;
  historyTestClock+=10;serviceTemperatureHistory();assert(temperatureHistory.size()==1);
+ assert(TemperatureHistory::activeTarget(temperatureHistory.at(0),0)==20);
+ assert(TemperatureHistory::activeTarget(temperatureHistory.at(0),1)==18);
  // Failed writes remain in RAM, report failure and retry without stopping normal control.
  historyTestClock+=60;testMillis+=60000;deviceStatus.lastReading=testMillis;
  FakeFS::writes=false;serviceTemperatureHistory();assert(!historyStorageHealthy&&!maintenance);

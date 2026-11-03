@@ -12,6 +12,8 @@ DeviceConfig configSnapshot(){return deviceConfig;}
 DeviceStatus statusSnapshot(){return deviceStatus;}
 bool saveConfig(const DeviceConfig& c){deviceConfig=c;return true;}
 bool loadConfig(){return true;}
+bool beginFlashMaintenance(bool){maintenance=true;return true;}
+void endFlashMaintenance(){maintenance=false;}
 int main() {
   WiFi.connected = false;
   strcpy(deviceConfig.ssid, "Home");

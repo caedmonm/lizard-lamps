@@ -14,11 +14,14 @@ DeviceStatus statusSnapshot(){return deviceStatus;}
 bool saveSucceeds = true;
 bool saveConfig(const DeviceConfig& c){if (!saveSucceeds) return false;deviceConfig=c;return true;}
 bool loadConfig(){return true;}
+bool beginFlashMaintenance(bool){maintenance=true;return true;}
+void endFlashMaintenance(){maintenance=false;}
 int main(int argc, char** argv){
  assert(DeviceConfig{}.fadeSeconds==1.0f);
  const std::string outputDirectory = argc > 1 ? argv[1] : "/tmp";
  try{webTask(nullptr);}catch(const std::runtime_error&){}
  assert(WiFi.openAP);
+ assert(server.routes.count("/api/firmware")&&server.uploads.count("/api/firmware"));
  server.auth=false;server.routes["/favicon.svg"]();
  assert(server.code==200&&server.contentType=="image/svg+xml"&&server.body.find("<svg")!=String::npos);
  server.auth=true;
@@ -91,6 +94,7 @@ int main(int argc, char** argv){
  controlArgs();server.args.erase("fadeSeconds");server.args["proportionalBand"]="1.5";server.routes["/api/control"]();assert(server.code==200&&deviceConfig.fadeSeconds==4&&deviceConfig.proportionalBand==1.5f);
  controlArgs();server.routes["/api/control"]();assert(server.code==200&&deviceConfig.proportionalBand==2);
  assert(deviceConfig.targets[0][0]==30&&deviceConfig.starts[0]==420);
+ server.args={{"view","device"}};render();assert(server.body.find("Firmware update")!=String::npos&&server.body.find("firmware-form")!=String::npos);
  server.args={{"view","settings"}};render();assert(server.body.find("Holding adjustment time")!=String::npos);assert(server.body.find("Proportional band")!=String::npos&&server.body.find("value='0' selected")!=String::npos);
  controlArgs();server.args["dimmingEnabled"]="1";server.routes["/control"]();assert(server.code==303&&deviceConfig.dimmingEnabled);
  server.routes["/api/config"]();assert(server.body.find("\"dimmingEnabled\":true")!=String::npos&&server.body.find("\"fadeSeconds\":4.0")!=String::npos&&server.body.find("\"proportionalBand\":2.0")!=String::npos);

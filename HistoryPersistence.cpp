@@ -78,7 +78,8 @@ void serviceTemperatureHistory() {
   const DeviceStatus status=statusSnapshot();
   if (status.lastReading) temperatureHistory.record(now,status.temperatures[0],status.temperatures[1],
                                                      millis()-status.lastReading<=Control::StaleAfterMs,
-                                                     config.targets,status.lampPower,config.targetsSet);
+                                                     config.targets,status.lampPower,config.targetsSet && config.scheduleSet,
+                                                     status.activeLamp, status.floorMode != Control::FloorMode::Normal ? config.minimumTemperature : NAN);
   temperatureHistory.prune(now);
   if (!historyStorageReady || !temperatureHistory.size()) return;
   // If the wall clock moved backwards, allow the corrected timeline to be saved again.

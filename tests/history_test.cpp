@@ -23,5 +23,17 @@ int main() {
   assert(record(start+120));assert(history.at(history.size()-1).epoch==start+120); // Backwards clock correction.
   history.clear();history.record(start,30,24,true,targets,power,false);
   assert(history.at(0).targets[0][0]==TemperatureHistory::Missing);
+  history.clear();
+  history.record(start,30,24,true,targets,power,true,0);
+  history.record(start+60,20,18,true,targets,power,true,1);
+  history.record(start+120,15,18,true,targets,power,false,2,15);
+  assert(TemperatureHistory::activeTarget(history.at(0),0)==30);
+  assert(TemperatureHistory::activeTarget(history.at(0),1)==24);
+  assert(TemperatureHistory::activeTarget(history.at(1),0)==20);
+  assert(TemperatureHistory::activeTarget(history.at(1),1)==18);
+  assert(TemperatureHistory::activeTarget(history.at(2),0)==15);
+  assert(std::isnan(TemperatureHistory::activeTarget(history.at(2),1)));
+  auto legacy=history.at(0);legacy.reserved=0;
+  assert(std::isnan(TemperatureHistory::activeTarget(legacy,0)));
   std::cout<<"Minute history, 48h expiry, clock correction, temperatures, lamp percentages and four targets passed ("<<sizeof(history)<<" RAM bytes).\n";
 }

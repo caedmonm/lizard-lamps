@@ -12,6 +12,7 @@ A self-contained ESP32 controller for two AC heat lamps, originally built for a 
 - Independent day and night basking/ambient targets, with continuous proportional–integral (PI) regulation of the selected lamp.
 - Configurable minimum-temperature protection: the night lamp heats the basking spot, with day assistance only at least 5°C below the minimum, and maintains the floor without Wi-Fi or wall time.
 - Persistent Wi-Fi details, dashboard password, targets, schedule, heating control settings and fixed probe addresses.
+- Browser firmware uploads from **Device → Firmware update**, with both lamps held off during flashing.
 - Probe label swapping, Wi-Fi recovery after disconnection and a confirmed factory reset.
 - Europe/London clock with daylight saving, NTP synchronization and browser-time fallback.
 
@@ -128,7 +129,7 @@ Clone into a folder named `lizard-lamps`. In Arduino IDE, open `lizard-lamps.ino
 | MycilaDimmer | 3.0.1 | [MycilaDimmer](https://github.com/mathieucarbou/MycilaDimmer) |
 | MycilaPulseAnalyzer | 3.0.10 | [MycilaPulseAnalyzer](https://github.com/mathieucarbou/MycilaPulseAnalyzer) |
 
-WiFi, WebServer, DNSServer, ESPmDNS and Preferences come with the ESP32 core. The task separation assumes the dual-core ESP32-WROOM-32; single-core variants are not supported by this configuration.
+WiFi, WebServer, Update, DNSServer, ESPmDNS and Preferences come with the ESP32 core. The task separation assumes the dual-core ESP32-WROOM-32; single-core variants are not supported by this configuration.
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32 .
@@ -145,11 +146,33 @@ Run tests with a C++17 compiler and Python 3 (Node.js enables the embedded AJAX 
 
 **Device → Dashboard access** lets you enable or disable password protection later. Existing saved passwords stay enabled after an upgrade. Leave the password blank to keep an existing password; enabling from an unprotected state requires a new password. Disabling clears the saved dashboard password and allows anyone on the connected network or recovery hotspot to manage the device.
 
+## Browser firmware updates over Wi-Fi
+
+Install this version once over USB to add OTA support. Keep **Tools → Partition Scheme → Default 4MB with SPIFFS** (two 1.25 MiB application slots and 1.375 MiB filesystem), with flash erasure disabled. If the device uses another partition scheme, verify it has two OTA application slots before updating; switching partition layouts may require USB and can remove stored history.
+
+For subsequent updates on the same local network:
+
+1. Build for **ESP32 Dev Module**, using the same board and partition settings. In Arduino IDE choose **Sketch → Export Compiled Binary**. Alternatively:
+
+   ```sh
+   arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir /tmp/lizard-lamps-firmware .
+   ```
+
+2. Open [http://lizard-lamps.local](http://lizard-lamps.local) (or the device LAN IP), sign in if protection is enabled, and choose **Device → Firmware update**.
+3. Select **`lizard-lamps.ino.bin`**, the application image. Do not select `.merged.bin`, `.bootloader.bin`, `.partitions.bin` or a filesystem image.
+4. Press **Upload firmware & restart**. Keep power connected and wait for the restart confirmation. Reopen the dashboard after a few seconds.
+
+The upload uses the dashboard password when enabled and always checks a per-boot CSRF token in a request header before starting flash writes. JavaScript is required. The current firmware stays in its application slot while the new image is written into the other slot. Image size, ESP32 image validation and upload completion must pass before it is selected for boot. This does not add automatic rollback if a valid new image boots but malfunctions; USB remains the recovery route.
+
+Both lamp commands are set to zero and acknowledged by the control loop before flashing. They remain off through validation and restart; minimum-temperature protection is paused too. A failed or interrupted upload aborts and releases the maintenance guard, allowing normal control to resume. Upload processing is limited to two minutes (checked during callbacks); stalled connections also use the HTTP parser's timeouts. If the browser loses connection before confirmation, reopen the dashboard to check the outcome before retrying.
+
+Application uploads preserve NVS settings and LittleFS history with this partition layout. No internet or cloud service is needed. Enable dashboard password protection to restrict who can install firmware on the LAN or recovery hotspot.
+
 ## Temperature history
 
-The overview logs one snapshot **every minute**, keeping the latest **48 hours**. Each snapshot contains both measured probe temperatures, both lamp output percentages, and the four configured day/night basking/ambient targets. Temperatures have 0.1°C resolution. Disconnected, invalid or stale readings appear as gaps; real readings above the heating cutoff remain visible. The percentages are requested output, not measured wattage.
+The overview logs one snapshot **every minute**, keeping the latest **48 hours**. Each snapshot contains both measured probe temperatures, both lamp output percentages, the four configured day/night basking/ambient targets, and metadata identifying the active targets. Temperatures have 0.1°C resolution. Disconnected, invalid or stale readings appear as gaps; real readings above the heating cutoff remain visible. The percentages are requested output, not measured wattage.
 
-Choose a 1, 6, 12, 24 or 48-hour window, use Earlier/Later or the timeline slider to explore, and select Latest to follow new readings. Toggle any of the eight series in the legend. Temperatures/targets use the left °C axis; lamp outputs use the right % axis. Hover/touch the chart or use the reading slider to inspect all values and dates. Times display in Europe/London; the graph refreshes once a minute while visible.
+Choose a 1, 6, 12, 24 or 48-hour window, use Earlier/Later or the timeline slider to explore, and select Latest to follow new readings. Toggle any of the six series in the legend. **Basking target** and **Ambient target** follow the active period at each recorded minute, rather than plotting separate day/night lines. During minimum protection, basking shows the floor and ambient has no target. Earlier firmware records retain their measured temperatures, lamp outputs and configured targets, but the active target lines have gaps because the active period was not recorded. Temperatures/targets use the left °C axis; lamp outputs use the right % axis. Hover/touch the chart or use the reading slider to inspect all values and dates. Times display in Europe/London; the graph refreshes once a minute while visible.
 
 History is saved to **LittleFS flash storage** and restored after restarts and power loss once the clock is valid. Logging also waits for valid time (NTP or browser-time fallback), so offline periods with no clock remain gaps. Ordinary firmware uploads preserve the log when they preserve the filesystem partition; erasing flash or changing partitions can remove it. Changing probe labels or performing a factory reset clears history. A power cut can lose the in-progress save, but committed records have integrity checks and damaged records are skipped independently.
 
@@ -165,7 +188,7 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | --- | --- | --- |
 | GET | `/api/status` | Temperatures, active targets, selected lamp, requested power, clock and health |
 | GET | `/api/connection` | Wi-Fi progress, network name, LAN IP and hotspot state |
-| GET | `/api/history` | Last 48 hours: `samples` as `[ageSeconds, baskingC, ambientC, dayPercent, nightPercent, dayBaskingTarget, dayAmbientTarget, nightBaskingTarget, nightAmbientTarget]`, oldest first; missing values are `null` |
+| GET | `/api/history` | Last 48 hours: `samples` as `[ageSeconds, baskingC, ambientC, dayPercent, nightPercent, dayBaskingTarget, dayAmbientTarget, nightBaskingTarget, nightAmbientTarget, activeBaskingTarget, activeAmbientTarget]`, oldest first; missing values are `null` |
 | GET | `/api/config` | Day/night start times, targets, probe identities and protection state |
 | POST | `/api/schedule` | Save both periods and all four targets together |
 | POST | `/api/wifi` | Save Wi-Fi details and initial dashboard protection choice |
@@ -173,9 +196,10 @@ The browser uses these same-origin endpoints with dashboard Digest authenticatio
 | POST | `/api/admin` | Enable, disable or change dashboard password protection |
 | POST | `/api/clock` | Supply browser-time fallback |
 | POST | `/api/probes` | Swap basking/ambient probe identities |
+| POST | `/api/firmware` | Multipart application firmware upload; requires `X-CSRF-Token` and decimal `X-Firmware-Size` headers and exactly one `firmware` file |
 | POST | `/api/reset` | Confirm factory reset |
 
-Writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (fade on) or `0` (fade off), plus `fadeSeconds` (0.1–300 seconds, required when on), `proportionalBand` (1–10°C) and `integralSeconds` (60–3600 seconds), both required regardless of fading. PI regulation always remains active; `restartDrop` is retired. When fading is off, omitted `fadeSeconds` preserves its saved value. `minimumTemperature` optionally sets the 5–40°C floor; omitting it preserves the saved value. `/api/config` returns all five settings. `/api/status` includes `targetLimited` when both targets are exceeded by 1°C, plus `lampPower: [day, night]` and `floorMode` (`0` normal, `1` recovery, `2` night hold); `activeLamp=2` means both lamps during recovery. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
+Settings writes accept URL-encoded form fields, including the per-boot `csrf` token embedded in the page. The schedule fields are `lamp1`, `lamp2`, `dayBasking`, `dayAmbient`, `nightBasking`, and `nightAmbient`; times use HH:MM. Heating control uses `dimmingEnabled=1` (fade on) or `0` (fade off), plus `fadeSeconds` (0.1–300 seconds, required when on), `proportionalBand` (1–10°C) and `integralSeconds` (60–3600 seconds), both required regardless of fading. PI regulation always remains active; `restartDrop` is retired. When fading is off, omitted `fadeSeconds` preserves its saved value. `minimumTemperature` optionally sets the 5–40°C floor; omitting it preserves the saved value. `/api/config` returns all five settings. `/api/status` includes `targetLimited` when both targets are exceeded by 1°C, plus `lampPower: [day, night]` and `floorMode` (`0` normal, `1` recovery, `2` night hold); `activeLamp=2` means both lamps during recovery. Dashboard access uses `protectAdmin=1` to enable protection and `adminPassword` for a new password; omit `protectAdmin` to disable it. Initial Wi-Fi setup uses the same fields. CSRF checks apply with or without password protection. Reset also requires `confirmation=RESET`. Optional `epoch` supplies browser time when the clock is unset. Normal HTML POST routes remain available as a fallback when JavaScript is disabled.
 
 HTTP responses close the client after a short or failed socket write, and history streaming stops immediately when a response fails. An 8-second response budget is checked between writes so a stalled client cannot trigger another wait for every remaining history chunk. An individual library socket write can overrun that budget; this is not a hard real-time deadline. Aborted responses are reported on Serial.
 
@@ -191,6 +215,7 @@ Missing/disconnected readings are JSON `null`. The client shows a connection-los
 - `DeviceHttpServer.h`: failed-write handling and an inter-write response budget for HTTP clients.
 - `TemperatureHistory.h`: bounded rolling temperature log with UTC minute sampling, compact temperatures, lamp outputs and targets.
 - `HistoryStorage.h` / `HistoryPersistence.cpp`: bounded LittleFS records, checksums, restart recovery and guarded background saves.
+- `FirmwareUpdate.h` / `WebFirmware.h`: guarded multipart OTA upload and browser progress/restart UI.
 - `WebHistory.h`: embedded SVG history graph, range navigation and reading inspection.
 - `WebClient.h`: AJAX polling, live DOM updates, inline settings saves and connection feedback.
 - `WebStyle.h`: embedded responsive design.

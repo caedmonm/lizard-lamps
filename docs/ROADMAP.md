@@ -16,6 +16,8 @@ The controller now hosts its own interface on the ESP32. Its JSON API serves the
 - Stale/invalid/over-limit temperature shutdown and zero-cross fault shutdown.
 - Separate web task and hardware control loop, with output-off acknowledgment before configuration writes or reset.
 - Automatic migration of existing saved temperatures into both day and night periods.
+- Browser OTA application updates with authentication, CSRF checks, output-off acknowledgement, upload validation and restart.
+- Active basking/ambient history targets without separate day/night lines.
 - Native control/web-handler/configuration tests and ESP32 compilation.
 
 ## Next priority — Hardware validation
@@ -28,7 +30,6 @@ Run the [validation checklist](VALIDATION.md) on the actual board, dimmer and pr
 - Configurable timezone and explicit heating-off periods.
 - Configurable alarms and additional history/export options.
 - Latched faults, watchdog/recovery policy and additional diagnostics.
-- OTA firmware updates with clear output-off behavior.
 - Probe replacement/pairing without resetting all settings.
 - Dashboard password changes.
 

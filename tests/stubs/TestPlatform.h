@@ -19,6 +19,7 @@ public:
  String(const std::string& v):std::string(v){}
  String(int v):std::string(std::to_string(v)){}
  String(float v, int precision = 2) { std::ostringstream s; s << std::fixed << std::setprecision(precision) << v; assign(s.str()); }
+ bool endsWith(const char* suffix) const {std::string tail(suffix);return size()>=tail.size()&&compare(size()-tail.size(),tail.size(),tail)==0;}
  bool isEmpty() const { return empty(); }
  void toCharArray(char* b, size_t n) const { if(n) { strncpy(b,c_str(),n-1); b[n-1]=0; } }
 };
@@ -74,7 +75,15 @@ struct NetworkClient {
    return writes==failAt?0:std::min(length,writeLimit);
  }
 };
+enum HTTPUploadStatus { UPLOAD_FILE_START, UPLOAD_FILE_WRITE, UPLOAD_FILE_END, UPLOAD_FILE_ABORTED };
+struct HTTPUpload { HTTPUploadStatus status=UPLOAD_FILE_START; String name="firmware",filename="firmware.bin"; size_t currentSize=0,totalSize=0; uint8_t buf[2048]={}; };
 struct WebServer {
+ HTTPUpload currentUpload;
+ std::map<std::string,String> requestHeaders;
+ std::map<std::string,std::function<void()>> uploads;
+ HTTPUpload& upload(){return currentUpload;}
+ String header(const String& key){return requestHeaders[key];}
+ void collectHeaders(const char*[],size_t){}
  std::map<std::string,String> args;
  std::map<std::string,std::function<void()>> routes;
  std::map<std::string,String> headers;
@@ -96,6 +105,7 @@ struct WebServer {
  void sendHeader(const char* k,const String& v){headers[k]=v;}
  void send(int c,const char* type,const String& b){code=c;body.clear();contentType=type;_currentClientWrite("headers",7);if(b.size())sendContent(b);}
  template<class F> void on(const char* k,int,F f){routes[k]=f;}
+ template<class F,class U> void on(const char* k,int,F f,U u){routes[k]=f;uploads[k]=u;}
  template<class F> void onNotFound(F){}
  void begin(){throw std::runtime_error("routes ready");}
  void handleClient(){if(request)request();chunked=false;}
