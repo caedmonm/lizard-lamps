@@ -3,11 +3,13 @@
 #include <LittleFS.h>
 #include <cstring>
 
-// 49 fixed hourly files. Reuse slots instead of allowing files or keys to grow.
+// Keep the original 49-slot addressing so upgrades can read existing files.
+// Prune expired files on saves, retaining at most 25 hourly files for 24 hours.
 // CRCs reject incomplete records after an interrupted write; no native struct padding is persisted.
 class HistoryStorage {
 public:
   static constexpr unsigned Slots = 49;
+  static constexpr unsigned RetainedHours = TemperatureHistory::RetentionSeconds / 3600;
   struct Header { uint32_t magic, hour; uint8_t probes[2][8]; uint32_t crc; };
   struct Record { TemperatureHistory::Sample sample; uint32_t crc; };
   static_assert(sizeof(Header) == 28 && sizeof(Record) == 24, "Disk format changed");
@@ -28,7 +30,7 @@ public:
   bool load(TemperatureHistory& history, uint32_t now, const uint8_t probes[2][8]) {
     history.clear();
     const uint32_t hour = now / 3600;
-    for (uint32_t bucket=hour-48; bucket<=hour; ++bucket) {
+    for (uint32_t bucket=hour-RetainedHours; bucket<=hour; ++bucket) {
       char name[24]; path(bucket % Slots, name);
       File file = LittleFS.open(name, "r");
       Header h;
@@ -45,6 +47,26 @@ public:
       }
     }
     return true;
+  }
+  // Called inside the flash-maintenance guard, once per hour (or after failure).
+  // Preserve the on-disk mapping; changing the modulus would hide saved readings.
+  bool prune(uint32_t now) {
+    if (!TemperatureHistory::validClock(now)) return false;
+    const uint32_t hour=now/3600;
+    if (prunedHour==hour) return true;
+    bool ok=true;
+    for (unsigned slot=0;slot<Slots;++slot) {
+      char name[24];path(slot,name);
+      if (!LittleFS.exists(name)) continue;
+      File file=LittleFS.open(name,"r");
+      if (!file) { ok=false;continue; }
+      Header h;
+      const bool expired=!header(file,h) || h.hour<hour-RetainedHours || h.hour>hour;
+      file.close();
+      if (expired && !LittleFS.remove(name)) ok=false;
+    }
+    if (ok) prunedHour=hour;
+    return ok;
   }
   bool save(const TemperatureHistory::Sample& sample, const uint8_t probes[2][8]) {
     char name[24]; path((sample.epoch/3600) % Slots, name);
@@ -70,6 +92,7 @@ public:
            !memcmp(&record,&verified,sizeof(record));
   }
   bool erase() {
+    prunedHour=0;
     bool ok=true;
     for (unsigned slot=0;slot<Slots;++slot) {
       char name[24];path(slot,name);
@@ -77,4 +100,6 @@ public:
     }
     return ok;
   }
+private:
+  uint32_t prunedHour=0;
 };

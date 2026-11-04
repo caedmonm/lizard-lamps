@@ -11,7 +11,7 @@ The controller now hosts its own interface on the ESP32. Its JSON API serves the
 - Independent day/night basking/ambient targets and PI regulation of the last target reached, with anti-windup, a target-relative command ceiling, and configurable timed fading (default 1 second).
 - Local daily schedule, midnight wrap, London daylight saving and clock fallback.
 - Wi-Fi recovery hotspot and authenticated, CSRF-protected JSON write endpoints with HTML form fallbacks.
-- One-minute snapshots of probe temperatures, lamp percentages and all targets, with 48-hour LittleFS persistence and an interactive overview graph.
+- One-minute snapshots of probe temperatures, lamp percentages and all targets, with 24-hour LittleFS persistence and an interactive overview graph.
 - AJAX live monitoring, Wi-Fi connection progress and inline settings saves without page refreshes.
 - Stale/invalid/over-limit temperature shutdown and zero-cross fault shutdown.
 - Separate web task and hardware control loop, with output-off acknowledgment before configuration writes or reset.

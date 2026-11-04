@@ -95,10 +95,10 @@ void serviceTemperatureHistory() {
   if (first==temperatureHistory.size()) { lastFlush=millis();flushPending=false;return; }
   lastAttempt=millis();attempted=true;flushPending=true;
   if (!beginFlashMaintenance(true)) { historyStorageHealthy=false; return; }
-  bool saved=true, complete=true;
+  bool saved=store.prune(now), complete=true;
   // A long storage outage must not turn catch-up into an unbounded output pause.
   constexpr size_t MaxBatchRecords=16;
-  for (size_t i=first;i<temperatureHistory.size();++i) {
+  for (size_t i=first;saved && i<temperatureHistory.size();++i) {
     if (i-first==MaxBatchRecords) { complete=false;break; }
     const auto& sample=temperatureHistory.at(i);
     saved=store.save(sample,historyProbes);

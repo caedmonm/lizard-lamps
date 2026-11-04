@@ -24,6 +24,10 @@ const char WebFirmware[] PROGMEM = R"JS(
     xhr.onerror=lost;xhr.ontimeout=lost;xhr.onabort=lost;
     const body=new FormData();body.append('firmware',image);xhr.send(body);
   });
+  // The HTML button starts disabled so an incomplete page cannot submit a
+  // plain form instead of the authenticated upload above.
+  button.disabled=false;
+  message.textContent='Ready to upload an application .bin file.';
 })();
 </script>
 )JS";

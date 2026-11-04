@@ -42,6 +42,27 @@ int main(int argc, char** argv){
    temperatureHistory.record(historyNow-historyNow%60-(TemperatureHistory::Capacity-1-i)*60,29,23,true,historyTargets,historyPower);
  server.routes["/api/history"]();
  std::ofstream(outputDirectory+"/history-full.json")<<server.body;
+ // Fetch the same complete day in bounded pages, newest page first. Epoch
+ // cursors remain valid when indices move as new readings arrive or expire.
+ server.args={{"paged","1"}};
+ std::ofstream pages(outputDirectory+"/history-pages.json");pages<<"[";
+ uint32_t before=0;unsigned pageCount=0;
+ do {
+   server.routes["/api/history"]();assert(server.code==200);
+   if(pageCount++)pages<<",";pages<<server.body;
+   const size_t cursor=server.body.find("\"nextBefore\":")+13;
+   const uint32_t next=std::stoul(server.body.substr(cursor));
+   assert(!next||!before||next<before);before=next;
+   server.args["before"]=std::to_string(before);
+ }while(before);
+ pages<<"]";pages.close();assert(pageCount>=12&&pageCount<=13);
+ for(const char* invalid : {"", "bad", "1704067200junk", "-1", "4102444800", "99999999999999999999"}) {
+   server.args["before"]=invalid;server.routes["/api/history"]();assert(server.code==422);
+ }
+ server.args={{"paged","1"},{"before",std::to_string(temperatureHistory.at(0).epoch)}};
+ server.routes["/api/history"]();assert(server.body.find("\"samples\":[]")!=String::npos);
+ assert(server.body.find("\"nextBefore\":0")!=String::npos);
+ server.args.clear();
  temperatureHistory.clear();
  csrf="test-token"; hotspot=false;
  // Manual test writes require authentication, CSRF and healthy, fresh hardware.
@@ -118,6 +139,9 @@ int main(int argc, char** argv){
  controlArgs();server.routes["/api/control"]();assert(server.code==200&&deviceConfig.proportionalBand==2);
  assert(deviceConfig.targets[0][0]==30&&deviceConfig.starts[0]==420);
  server.args={{"view","device"}};render();assert(server.body.find("Firmware update")!=String::npos&&server.body.find("firmware-form")!=String::npos);
+ assert(server.body.find("<button disabled>Upload firmware &amp; restart</button>")!=String::npos);
+ assert(server.body.find("method='post' action='/api/firmware'")!=String::npos);
+ assert(server.body.find("Loading firmware uploader")!=String::npos);
  server.args={{"view","settings"}};render();assert(server.body.find("Holding adjustment time")!=String::npos);assert(server.body.find("Proportional band")!=String::npos&&server.body.find("value='0' selected")!=String::npos);
  controlArgs();server.args["dimmingEnabled"]="1";server.routes["/control"]();assert(server.code==303&&deviceConfig.dimmingEnabled);
  server.routes["/api/config"]();assert(server.body.find("\"dimmingEnabled\":true")!=String::npos&&server.body.find("\"fadeSeconds\":4.0")!=String::npos&&server.body.find("\"proportionalBand\":2.0")!=String::npos);
@@ -136,7 +160,7 @@ int main(int argc, char** argv){
  controlArgs();server.args["fadeSeconds"]="4";server.routes["/api/control"]();
  deviceStatus.floorMode=Control::FloorMode::Recovery;deviceStatus.activeLamp=2;
  server.args={{"view","monitor"}};render();assert(server.body.find("Minimum recovery · Both lamps")!=String::npos);
- assert(server.body.find("id='history-chart'")!=String::npos && server.body.find("value='48'")!=String::npos);
+ assert(server.body.find("id='history-chart'")!=String::npos && server.body.find("value='24'")!=String::npos && server.body.find("value='48'")==String::npos);
  server.routes["/api/status"]();assert(server.body.find("\"floorMode\":1")!=String::npos&&server.body.find("\"lampPower\":[")!=String::npos);
  deviceStatus.targetLimited=true;
  server.routes["/api/status"]();assert(server.body.find("\"targetLimited\":true")!=String::npos);
@@ -197,7 +221,7 @@ int main(int argc, char** argv){
    server.client()=NetworkClient{};server.client().failAt=failAt;
    server.handleClient();
    assert(server.responseFailed()&&!server.client().connected());
-   assert(server.client().writes==failAt); // No retries for the remaining 48 hours.
+   assert(server.client().writes==failAt); // No retries for the remaining 24 hours.
  }
  server.client()=NetworkClient{};server.client().writeLimit=3;
  server.handleClient();
@@ -216,9 +240,28 @@ int main(int argc, char** argv){
  server.client()=NetworkClient{};server.handleClient();
  assert(!server.responseFailed()&&server.body.find("\"samples\":[[")!=String::npos);
  assert(server.body.substr(server.body.size()-2)=="]}");
+ // At 100ms per socket write the full day exceeds the response budget, but
+ // a two-hour page completes and releases the web task for the next request.
+ server.client()=NetworkClient{};server.client().writeDelay=100;server.handleClient();
+ assert(server.responseFailed());
+ server.args={{"paged","1"}};
+ server.client()=NetworkClient{};server.client().writeDelay=100;server.handleClient();
+ assert(!server.responseFailed()&&server.body.substr(server.body.size()-2)=="]}");
+ server.args.clear();
  server.request=[&]{server.routes["/api/status"]();};
  server.client()=NetworkClient{};server.handleClient();
  assert(server.code==200&&!server.responseFailed()&&server.body.find("\"temperatures\":[")!=String::npos);
+ // Pages stream each script from flash after their HTML, with an exact total
+ // length. A failed part must not be followed by more script writes.
+ server.request=[&]{server.args={{"view","device"}};render();};
+ for(unsigned failAt : {1U,2U,3U,4U,5U,6U}) {
+   server.client()=NetworkClient{};server.client().failAt=failAt;
+   server.handleClient();assert(server.responseFailed()&&server.client().writes==failAt);
+ }
+ server.client()=NetworkClient{};server.handleClient();
+ assert(!server.responseFailed()&&!server.chunked&&server.contentLength==server.body.size());
+ assert(server.body.find(WebClient)!=String::npos&&server.body.find(WebFirmware)!=String::npos&&server.body.find(WebHistory)!=String::npos);
+ assert(server.body.substr(server.body.size()-14)=="</body></html>");
  std::cout<<"Optional password setup, protection toggles and actual firmware pages rendered; authentication, CSRF, validation, saving, probe mapping, escaping and reset confirmation checks passed with mocked hardware.\n";
  std::cout<<"HTTP short/failed writes, slow-response budget, millis rollover and next-client recovery passed with mocked sockets.\n";
 }

@@ -100,19 +100,28 @@ bool validPost() {
 }
 #include "FirmwareUpdate.h"
 
-void sendPage(String html, int code = 200) {
+void sendPage(const String& html, int code = 200) {
+  // Keep the shared scripts in flash. Appending them to the page (and copying
+  // that String into this function) can exhaust heap and silently omit them.
+  const char closing[]="</body></html>";
+  server.setContentLength(html.length()+sizeof(WebClient)-1+sizeof(WebFirmware)-1+
+                          sizeof(WebHistory)-1+sizeof(closing)-1);
   server.sendHeader("Cache-Control", "no-store");
   server.sendHeader("X-Content-Type-Options", "nosniff");
   server.sendHeader("X-Frame-Options", "DENY");
   server.sendHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   server.send(code, "text/html; charset=utf-8", html);
+  for (const char* script : {WebClient,WebFirmware,WebHistory}) {
+    if (server.responseFailed()) return;
+    server.sendContent_P(script,strlen(script));
+  }
+  if (!server.responseFailed()) server.sendContent(closing);
 }
 String beginning() {
   String html; html.reserve(16000);
   html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Lizard Lamps</title><link rel='icon' type='image/svg+xml' href='/favicon.svg'>";
   html += FPSTR(WebStyle); html += "</head><body>"; return html;
 }
-String ending() { return String(FPSTR(WebClient)) + FPSTR(WebFirmware) + FPSTR(WebHistory) + "</body></html>"; }
 void redirect(const String& path) {
   if (apiRequest) { sendJson("{\"ok\":true,\"next\":" + jsonString(path) + "}"); return; }
   server.sendHeader("Location", path); server.send(303, "text/plain", "Saved");
@@ -157,7 +166,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
   if (!c.ssid[0]) {
     h += "<div class='setup-shell'><div class='welcome'>" + brand() + "<div class='card'><span class='eyebrow'>Welcome home</span><h1>A little warmth.<br>A smarter habitat.</h1><div id='live-message' class='notice' role='status' hidden></div><p class='muted'>Connect your controller to Wi-Fi to start setting up your enclosure.</p>";
     if (error.length()) h += "<div class='notice error' role='alert'>" + escape(error) + "</div>";
-    h += wifiForm(true, c) + "</div><p class='footer'>Join LizardLamps-XXXXXX without a password, then open <a href='http://192.168.4.1'>http://192.168.4.1</a>. Heating stays off during setup.</p></div></div>" + ending(); sendPage(h, code); return;
+    h += wifiForm(true, c) + "</div><p class='footer'>Join LizardLamps-XXXXXX without a password, then open <a href='http://192.168.4.1'>http://192.168.4.1</a>. Heating stays off during setup.</p></div></div>"; sendPage(h, code); return;
   }
   String view = forcedView.isEmpty() ? server.arg("view") : forcedView;
   if (view != "settings" && view != "schedule" && view != "device") view = c.targetsSet && c.scheduleSet ? "monitor" : "schedule";
@@ -185,7 +194,7 @@ void render(const String& error = "", int code = 200, const String& forcedView =
       h += "<section class='card'><div class='row'><h3>" + String(names[i]) + "</h3><span class='pill'>Probe " + String(i + 1) + "</span></div><div class='measure'><span data-temperature='" + String(i) + "'>" + String(isfinite(s.temperatures[i]) && s.temperatures[i] != -127.0f ? String(s.temperatures[i], 1) : "—") + "</span><span class='unit'> °C</span></div><div class='row divider'><span class='muted'>Target temperature</span><strong data-target='" + String(i) + "'>" + String(isfinite(s.targets[i]) ? String(s.targets[i], 1) + "°C" : "—") + "</strong></div></section>";
     }
     h += "<section class='card accent full'><div class='row'><div><span class='eyebrow' style='color:#c6dac9'>Heating output</span><h2 id='active-period'>" + String(s.floorMode == Control::FloorMode::Recovery ? String("Minimum recovery · Both lamps") : s.floorMode == Control::FloorMode::NightHold ? String("Minimum hold · Night lamp") : s.testActive ? String("Manual test · ") + (s.testLamp == 0 ? "Day · Lamp 1" : "Night · Lamp 2") : s.activeLamp >= 0 ? (s.activeLamp == 0 ? String("Day · Lamp 1") : String("Night · Lamp 2")) : "Waiting for schedule") + "</h2></div><span class='pill' id='power-state'>" + String(s.targetLimited ? "Cooling down" : s.power > 0 ? (s.floorMode == Control::FloorMode::Normal ? (s.testActive ? "Testing" : "Regulating") : "Heating") : "Output off") + "</span></div><div class='row'><span class='muted'>Requested power</span><span class='stat' id='power-percent'>" + String(s.power) + "%</span></div><div class='power'><span id='power-bar' style='width:" + String(s.power) + "%'></span></div><p class='muted small'>Lamp power follows whichever probe is furthest below its target, then adjusts to hold the last target reached. Either probe reaching 45°C stops heating. Minimum protection uses only the basking probe: the night lamp heats, with day assistance only at least 5°C below the minimum.</p></section></div><section class='card gap'><div class='row'><h2>Today's rhythm</h2><a href='/?view=schedule'>Edit schedule →</a></div>" + timeline(c) + "<div class='row divider'><span data-start='0'>Day · Lamp 1 · " + timeText(c.starts[0]) + "</span><span data-start='1'>Night · Lamp 2 · " + timeText(c.starts[1]) + "</span></div></section><p class='footer'>Requested power is not a measured wattage.</p>";
-    h += "<section class='card' id='temperature-history'><h2>Temperature history</h2><p class='muted small'>Temperatures, active targets &amp; lamp outputs · sampled every minute · last 48 hours. Saved every ten minutes; a restart can lose unsaved readings. Logging waits for a valid clock. Changing probe labels clears history. Active targets are unavailable for readings saved by older firmware.</p><div class='history-controls'><div><label for='history-window'>Time window</label><select id='history-window'><option value='1'>1 hour</option><option value='6' selected>6 hours</option><option value='12'>12 hours</option><option value='24'>24 hours</option><option value='48'>48 hours</option></select></div><button type='button' id='history-older' aria-label='Show earlier temperatures'>← Earlier</button><button type='button' id='history-newer' aria-label='Show later temperatures'>Later →</button><button type='button' id='history-latest'>Latest</button></div><label for='history-position' class='gap'>Explore the last 48 hours</label><input id='history-position' type='range' min='0' max='2520' step='1' value='2520'><p id='history-period' class='small muted'></p><svg id='history-chart' viewBox='0 0 800 280' role='img' aria-label='Temperature, lamp output and active target history'></svg><div class='history-legend'><label><input type='checkbox' data-history-series='0' checked><i class='swatch' style='background:#28583e'></i>Basking spot</label><label><input type='checkbox' data-history-series='1' checked><i class='swatch' style='background:#8260ac'></i>Ambient</label><label><input type='checkbox' data-history-series='2' checked><i class='swatch' style='background:#d06c1b'></i>Lamp 1 output</label><label><input type='checkbox' data-history-series='3' checked><i class='swatch' style='background:#286bb0'></i>Lamp 2 output</label><label><input type='checkbox' data-history-series='4' checked><i class='swatch' style='background:#639b41'></i>Basking target</label><label><input type='checkbox' data-history-series='5' checked><i class='swatch' style='background:#bc82ad'></i>Ambient target</label></div><label for='history-reading' class='gap'>Inspect a reading</label><input id='history-reading' type='range' min='0' max='1' value='1' step='1'><p id='history-detail' class='small' role='status'></p><p id='history-message' class='small muted' role='status'>Loading temperature history…</p></section>";
+    h += "<section class='card' id='temperature-history'><h2>Temperature history</h2><p class='muted small'>Temperatures, active targets &amp; lamp outputs · sampled every minute · last 24 hours. Saved every ten minutes; a restart can lose unsaved readings. Logging waits for a valid clock. Changing probe labels clears history. Active targets are unavailable for readings saved by older firmware.</p><div class='history-controls'><div><label for='history-window'>Time window</label><select id='history-window'><option value='1'>1 hour</option><option value='6' selected>6 hours</option><option value='12'>12 hours</option><option value='24'>24 hours</option></select></div><button type='button' id='history-older' aria-label='Show earlier temperatures'>← Earlier</button><button type='button' id='history-newer' aria-label='Show later temperatures'>Later →</button><button type='button' id='history-latest'>Latest</button></div><label for='history-position' class='gap'>Explore the last 24 hours</label><input id='history-position' type='range' min='0' max='1080' step='1' value='1080'><p id='history-period' class='small muted'></p><svg id='history-chart' viewBox='0 0 800 280' role='img' aria-label='Temperature, lamp output and active target history'></svg><div class='history-legend'><label><input type='checkbox' data-history-series='0' checked><i class='swatch' style='background:#28583e'></i>Basking spot</label><label><input type='checkbox' data-history-series='1' checked><i class='swatch' style='background:#8260ac'></i>Ambient</label><label><input type='checkbox' data-history-series='2' checked><i class='swatch' style='background:#d06c1b'></i>Lamp 1 output</label><label><input type='checkbox' data-history-series='3' checked><i class='swatch' style='background:#286bb0'></i>Lamp 2 output</label><label><input type='checkbox' data-history-series='4' checked><i class='swatch' style='background:#639b41'></i>Basking target</label><label><input type='checkbox' data-history-series='5' checked><i class='swatch' style='background:#bc82ad'></i>Ambient target</label></div><label for='history-reading' class='gap'>Inspect a reading</label><input id='history-reading' type='range' min='0' max='1' value='1' step='1'><p id='history-detail' class='small' role='status'></p><p id='history-message' class='small muted' role='status'>Loading temperature history…</p></section>";
   } else if (view == "schedule") {
     h += "<section class='card'><h2>Day & night schedule</h2><p class='muted'>Set when each period begins and the temperatures to maintain. The schedule repeats daily in Europe/London time.</p>" + timeline(c) + "</section>" + formStart("/schedule");
     const char* periods[] = {"Day · Lamp 1", "Night · Lamp 2"};
@@ -207,9 +216,9 @@ void render(const String& error = "", int code = 200, const String& forcedView =
     h += "<label for='proportionalBand'>Proportional band · °C</label><input type='number' id='proportionalBand' name='proportionalBand' step='0.1' min='1' max='10' required value='" + String(c.proportionalBand, 1) + "'><p class='muted small'>How gently power reduces near the last target. Default: 3°C. A wider band gives a gentler response.</p><label for='integralSeconds'>Holding adjustment time · seconds</label><input type='number' id='integralSeconds' name='integralSeconds' step='1' min='60' max='3600' required value='" + String(c.integralSeconds, 0) + "'><p class='muted small'>How slowly the controller learns the power needed to hold the target. Default: 300 seconds. Increase this if temperature repeatedly overshoots. These controls stay active when fading is off.</p><label for='minimumTemperature'>Minimum safe temperature · °C</label><input type='number' id='minimumTemperature' name='minimumTemperature' step='0.1' min='5' max='40' required value='" + String(c.minimumTemperature, 1) + "'><p class='muted small'>Only the basking probe controls this minimum. Below it, the night lamp runs at full power. The day lamp assists only while basking is at least 5°C below the minimum. When scheduled heating is off or the clock is unavailable, the night lamp maintains the minimum with a 0.5°C holding band. Works without Wi-Fi or a clock, including before schedule setup. Probe and dimmer faults still stop heating.</p><button>Save heating control</button></form></section>";
     h += "<section class='card'><h2>Know your probes</h2><p class='muted'>Compare readings to identify the physical probes. Addresses stay fixed across restarts.</p><div class='list'><div class='row'><span>Basking spot</span><code data-probe='0'>" + String(c.probesSet ? address(c.probes[0]) : "Not detected") + "</code></div><div class='row'><span>Ambient</span><code data-probe='1'>" + String(c.probesSet ? address(c.probes[1]) : "Not detected") + "</code></div></div>" + formStart("/probes") + "<button>Swap probe labels</button></form><p class='muted small gap'>Swap which physical probe is basking versus ambient. Day and night targets retain their labels. If replacing a probe, factory reset and set up again.</p></section>";
   } else {
-    h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Dashboard access</h2>" + formStart("/admin") + "<input type='hidden' data-admin-current value='" + String(c.adminPassword[0] ? "1" : "0") + "'>" + adminFields(false, c) + "<button>Save password protection</button></form></section><section class='card'><h2>Firmware update</h2><p class='muted'>Choose a Lizard Lamps application .bin built for this ESP32. Both lamps stay off during the update. Keep power connected until the device restarts. Settings and temperature history are preserved with the same partition layout.</p><form id='firmware-form' data-csrf='" + csrf + "'><label for='firmware-file'>Firmware file</label><input id='firmware-file' type='file' accept='.bin' required><button>Upload firmware &amp; restart</button><progress id='firmware-progress' max='100' value='0' hidden></progress><p id='firmware-message' class='small' role='status'></p></form><noscript>Enable JavaScript to upload firmware.</noscript></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule, probe mappings and temperature history. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
+    h += "<section class='card'><h2>Connection</h2><div class='list'><div class='row'><span>Dashboard address</span><a href='http://lizard-lamps.local'>lizard-lamps.local</a></div><div class='row'><span>Device IP (fallback)</span><strong>" + String(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "Not connected") + "</strong></div><div class='row'><span>Network</span><strong>" + escape(c.ssid) + "</strong></div></div><div class='divider'>" + wifiForm(false, c) + "</div></section><section class='card'><h2>Dashboard access</h2>" + formStart("/admin") + "<input type='hidden' data-admin-current value='" + String(c.adminPassword[0] ? "1" : "0") + "'>" + adminFields(false, c) + "<button>Save password protection</button></form></section><section class='card'><h2>Firmware update</h2><p class='muted'>Choose a Lizard Lamps application .bin built for this ESP32. Both lamps stay off during the update. Keep power connected until the device restarts. Settings and temperature history are preserved with the same partition layout.</p><form id='firmware-form' method='post' action='/api/firmware' data-csrf='" + csrf + "'><label for='firmware-file'>Firmware file</label><input id='firmware-file' type='file' accept='.bin' required><button disabled>Upload firmware &amp; restart</button><progress id='firmware-progress' max='100' value='0' hidden></progress><p id='firmware-message' class='small' role='status'>Loading firmware uploader… Reload this page if it does not become ready.</p></form><noscript>Enable JavaScript to upload firmware.</noscript></section><section class='card'><h2>Factory reset</h2><p class='muted'>Stop heating and delete all saved Wi-Fi credentials, dashboard password, targets, schedule, probe mappings and temperature history. The device will restart with an open setup hotspot. Join LizardLamps-XXXXXX and open http://192.168.4.1.</p>" + formStart("/reset") + "<label for='confirmation'>Type RESET to erase this device</label><input id='confirmation' name='confirmation' required pattern='RESET' autocomplete='off'><button class='danger'>Erase data & restart</button></form></section>";
   }
-  h += "<p class='footer'><span id='live-update' role='status'>Connecting to live updates…</span><br>Independent hardware over-temperature protection is required.</p></main></div>" + ending(); sendPage(h, code);
+  h += "<p class='footer'><span id='live-update' role='status'>Connecting to live updates…</span><br>Independent hardware over-temperature protection is required.</p></main></div>"; sendPage(h, code);
 }
 void startHotspot() {
   WiFi.mode(WIFI_AP_STA);
@@ -283,15 +292,31 @@ void apiHistory() {
   const bool clockValid = wall>=1704067200 && wall<4102444800LL;
   const uint32_t now = clockValid ? uint32_t(wall) : 0;
   if (clockValid) temperatureHistory.prune(now);
+  const bool paged=server.arg("paged")=="1";
+  size_t first=0,last=clockValid?temperatureHistory.size():0;
+  if (paged) {
+    if (server.hasArg("before")) {
+      const String value=server.arg("before");char* end;
+      const long long before=strtoll(value.c_str(),&end,10);
+      if (*end || before<1704067200LL || before>=4102444800LL) {
+        jsonError("Invalid history cursor.",422);return;
+      }
+      while (last && temperatureHistory.at(last-1).epoch>=uint32_t(before)) --last;
+    }
+    // Two hours per request avoids one large transfer monopolizing the web task.
+    constexpr size_t PageSamples=120;
+    first=last>PageSamples?last-PageSamples:0;
+  }
+  char cursorText[11];snprintf(cursorText,sizeof(cursorText),"%lu",static_cast<unsigned long>(first?temperatureHistory.at(first).epoch:0));
   char epochText[11];snprintf(epochText,sizeof(epochText),"%lu",static_cast<unsigned long>(now));
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  sendJson("{\"nowEpoch\":" + String(epochText) + ",\"intervalSeconds\":60,\"retentionSeconds\":172800,\"clockValid\":" + String(jsonBool(clockValid)) +
-           ",\"storageHealthy\":" + jsonBool(historyStorageHealthy) + ",\"samples\":[");
+  sendJson("{\"nowEpoch\":" + String(epochText) + ",\"intervalSeconds\":60,\"retentionSeconds\":" + String(int(TemperatureHistory::RetentionSeconds)) + ",\"clockValid\":" + String(jsonBool(clockValid)) +
+           ",\"storageHealthy\":" + jsonBool(historyStorageHealthy) + ",\"nextBefore\":" + String(cursorText) + ",\"samples\":[");
   if (server.responseFailed()) return;
   String chunk;chunk.reserve(1200);
-  if (clockValid) for (size_t i=0;i<temperatureHistory.size();++i) {
+  for (size_t i=first;i<last;++i) {
     const auto& sample = temperatureHistory.at(i);
-    if (i) chunk += ",";
+    if (i!=first) chunk += ",";
     chunk += "[" + String(int(now-sample.epoch));
     for (int probe=0;probe<2;++probe) chunk += "," + jsonNumber(TemperatureHistory::decode(sample.temperatures[probe]));
     for (int lamp=0;lamp<2;++lamp) chunk += "," + String(int(sample.power[lamp]));
@@ -350,7 +375,7 @@ void webTask(void*) {
     String html = beginning() + "<div class='setup-shell'><div class='welcome'>" + brand() + "<section class='card'><span class='eyebrow'>Wi-Fi setup</span><h1 id='connection-title'>" + String(connected ? "You're connected." : "Finding your network…") + "</h1><div id='live-message' class='notice' role='status' hidden></div><p class='muted'>Network: <strong id='connection-network'>" + escape(config.ssid) + "</strong></p>";
     html += "<div id='connection-success'" + String(connected ? "" : " hidden") + "><p class='muted'>Rejoin your home Wi-Fi and open <a href='http://lizard-lamps.local'>http://lizard-lamps.local</a>. If that name does not work, use:</p><p class='stat'><a data-device-link='address' href='http://" + WiFi.localIP().toString() + "'>" + WiFi.localIP().toString() + "</a></p><p class='muted'>Sign in with <strong>admin</strong> if password protection is enabled. Save your day and night schedule and temperatures to finish setting up.</p><a class='button' data-device-link='button' href='http://" + WiFi.localIP().toString() + "/'>Open dashboard on home Wi-Fi →</a><p class='muted small gap'>Still on the setup hotspot? <a href='/?view=schedule'>Continue setup here</a>. On the hotspot the dashboard is at http://192.168.4.1.</p></div>";
     html += "<div id='connection-waiting'" + String(connected ? " hidden" : "") + "><p class='muted'>Connecting… This page updates automatically.</p><p class='small muted'>If this takes longer than 30 seconds, check the network name, password and 2.4GHz support.</p><a class='button' href='/?view=device'>Check Wi-Fi details</a></div><p id='connection-error' role='status' class='small muted'></p>";
-    html += "</section></div></div>" + ending(); sendPage(html);
+    html += "</section></div></div>"; sendPage(html);
   });
   registerForm("/wifi", [] {
     if (!validPost()) return;
@@ -469,7 +494,7 @@ void webTask(void*) {
     xSemaphoreTake(stateMutex, portMAX_DELAY); resetRequested = true; maintenanceAcknowledged = false; xSemaphoreGive(stateMutex);
     rebootAt = millis() + 1000;
     if (apiRequest) { sendJson("{\"ok\":true,\"resetting\":true}"); return; }
-    sendPage(beginning() + "<div class='setup-shell'><div class='card'><h1>Starting fresh.</h1><p>Heating is stopping. All saved data will be erased and the device will restart. Join the open LizardLamps-XXXXXX hotspot (no password), then open http://192.168.4.1 in your browser.</p></div></div>" + ending());
+    sendPage(beginning() + "<div class='setup-shell'><div class='card'><h1>Starting fresh.</h1><p>Heating is stopping. All saved data will be erased and the device will restart. Join the open LizardLamps-XXXXXX hotspot (no password), then open http://192.168.4.1 in your browser.</p></div></div>");
   });
   server.onNotFound([] { server.sendHeader("Location", "http://" + String(hotspot ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "/"); server.send(302, "text/plain", "Open dashboard"); });
   server.begin();

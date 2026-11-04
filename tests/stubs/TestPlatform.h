@@ -95,12 +95,17 @@ struct WebServer {
  bool hasArg(const char* key){return args.count(key);}
  bool authenticate(const char*,const char*){return auth;}
  void requestAuthentication(int,const char*,const char*){code=401;body="Authenticate";}
- void setContentLength(size_t length){chunked=length==CONTENT_LENGTH_UNKNOWN;}
+ size_t contentLength=0;
+ void setContentLength(size_t length){contentLength=length;chunked=length==CONTENT_LENGTH_UNKNOWN;}
  void sendContent(const String& content){
    if(chunked)_currentClientWrite("chunk-size\r\n",12);
    size_t written=_currentClientWrite(content.c_str(),content.size());
    body+=content.substr(0,written);
    if(chunked){currentClient.write("\r\n",2);if(content.empty())chunked=false;}
+ }
+ void sendContent_P(PGM_P content,size_t length){
+   const size_t written=_currentClientWrite_P(content,length);
+   body.append(content,written);
  }
  void sendHeader(const char* k,const String& v){headers[k]=v;}
  void send(int c,const char* type,const String& b){code=c;body.clear();contentType=type;_currentClientWrite("headers",7);if(b.size())sendContent(b);}

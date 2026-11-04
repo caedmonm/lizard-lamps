@@ -12,8 +12,10 @@ int main() {
   assert(history.at(0).temperatures[0]==300&&history.at(0).targets[1][0]==200&&history.at(0).power[0]==63);
   history.clear();
   for(size_t i=0;i<TemperatureHistory::Capacity+100;++i) assert(record(start+i*60));
-  assert(history.size()==2881&&history.at(0).epoch==start+100*60);
-  history.prune(history.at(2880).epoch+TemperatureHistory::RetentionSeconds+1);
+  assert(history.size()==1441&&history.at(0).epoch==start+100*60);
+  history.prune(history.at(history.size()-1).epoch+1);
+  assert(history.size()==1440&&history.at(0).epoch==start+101*60);
+  history.prune(history.at(history.size()-1).epoch+TemperatureHistory::RetentionSeconds+1);
   assert(history.size()==0);
   history.clear();record(start,-127,46);assert(history.at(0).temperatures[0]==TemperatureHistory::Missing);
   assert(TemperatureHistory::decode(history.at(0).temperatures[1])==46);
@@ -35,5 +37,5 @@ int main() {
   assert(std::isnan(TemperatureHistory::activeTarget(history.at(2),1)));
   auto legacy=history.at(0);legacy.reserved=0;
   assert(std::isnan(TemperatureHistory::activeTarget(legacy,0)));
-  std::cout<<"Minute history, 48h expiry, clock correction, temperatures, lamp percentages and four targets passed ("<<sizeof(history)<<" RAM bytes).\n";
+  std::cout<<"Minute history, 24h expiry, clock correction, temperatures, lamp percentages and four targets passed ("<<sizeof(history)<<" RAM bytes).\n";
 }

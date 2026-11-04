@@ -37,8 +37,17 @@ assert len(history['samples'])==2 and history['intervalSeconds']==60
 assert history['samples'][0][1:]==[30,24,60,0,30,24,20,18,None,None]
 assert history['samples'][1][1:]==[None,46,60,0,30,24,20,18,None,None]
 assert history['samples'][0][0]-history['samples'][1][0]==60
-full=json.loads((root/'history-full.json').read_text())['samples']
-assert 2880<=len(full)<=2881 and all(len(s)==11 for s in full)
-assert full[0][0]<=172800 and full[-1][0]<60
+full_response=json.loads((root/'history-full.json').read_text())
+assert full_response['retentionSeconds']==86400
+full=full_response['samples']
+assert 1440<=len(full)<=1441 and all(len(s)==11 for s in full)
+assert full[0][0]<=86400 and full[-1][0]<60
+pages=json.loads((root/'history-pages.json').read_text())
+assert all(0<len(page['samples'])<=120 for page in pages)
+absolute=lambda page: [[page['nowEpoch']-s[0],*s[1:]] for s in page['samples']]
+combined=[s for page in reversed(pages) for s in absolute(page)]
+assert combined==absolute(full_response)
+assert pages[-1]['nextBefore']==0
+assert all(page['nextBefore']==absolute(page)[0][0] for page in pages[:-1])
 print('API JSON responses parse correctly, including missing readings and day/night targets.')
 PY

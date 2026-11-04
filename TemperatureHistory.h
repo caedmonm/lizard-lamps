@@ -3,14 +3,14 @@
 #include <cstddef>
 #include <cstdint>
 
-// One entry per UTC minute; includes both ends of a 48-hour window.
+// One entry per UTC minute; includes both ends of a 24-hour window.
 class TemperatureHistory {
 public:
   static constexpr uint32_t IntervalSeconds = 60;
-  static constexpr uint32_t RetentionSeconds = 48UL * 60 * 60;
+  static constexpr uint32_t RetentionSeconds = 24UL * 60 * 60;
   static constexpr size_t Capacity = RetentionSeconds / IntervalSeconds + 1;
   static constexpr int16_t Missing = INT16_MIN;
-  // Tenths of a degree preserve probe precision and keep the complete log below 58 KB.
+  // Tenths of a degree preserve probe precision and keep the complete log below 29 KB.
   struct Sample {
     uint32_t epoch;
     int16_t temperatures[2];
@@ -72,4 +72,4 @@ private:
   size_t head_ = 0, count_ = 0;
 };
 static_assert(sizeof(TemperatureHistory::Sample) == 20, "Check history RAM budget");
-static_assert(sizeof(TemperatureHistory) < 58000, "History must remain below 58 KB");
+static_assert(sizeof(TemperatureHistory) < 29000, "History must remain below 29 KB");

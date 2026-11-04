@@ -11,16 +11,23 @@ int main() {
  }
  assert(FakeFS::files.size()==49);assert(LittleFS.usedBytes()==49*(28+60*24));
  TemperatureHistory restored;store.load(restored,start+3000*60,probes);
- assert(restored.size()==2881&&restored.at(0).epoch==start+120*60);
+ assert(restored.size()==1441&&restored.at(0).epoch==start+1560*60);
  assert(restored.at(0).temperatures[0]==294&&restored.at(0).power[0]==72&&restored.at(0).targets[1][1]==180);
+ // Upgrade from the original 49-file log without remapping or losing the last day.
+ FakeFS::removes=false;assert(!store.prune(start+3000*60));FakeFS::removes=true;
+ assert(store.prune(start+3000*60));assert(FakeFS::files.size()==25);
+ assert(LittleFS.usedBytes()==25*(28+60*24));
+ store.load(restored,start+3000*60,probes);
+ assert(restored.size()==1441&&restored.at(0).epoch==start+1560*60);
+ store.load(restored,start+3000*60+1,probes);assert(restored.size()==1440); // Strict 24-hour boundary.
  // Simulate a reboot with a truncated record and a corrupt record, retaining all other points.
  char name[24];HistoryStorage::path((start/3600+50)%49,name);
  auto& file=FakeFS::files[name];file.resize(28+10); // Current hour's only sample is incomplete.
  HistoryStorage::path((start/3600+49)%49,name);FakeFS::files[name][28+4]^=1;
- store.load(restored,start+3000*60,probes);assert(restored.size()==2879);
+ store.load(restored,start+3000*60,probes);assert(restored.size()==1439);
  auto swapped=probes[0][1];probes[0][1]=99;
  store.load(restored,start+3000*60,probes);assert(restored.size()==0);probes[0][1]=swapped;
- store.load(restored,start+3000*60+49*3600,probes);assert(restored.size()==0);
+ store.load(restored,start+3000*60+25*3600,probes);assert(restored.size()==0);
  // Partial writes report failure and are rejected when restored.
  history.record(start+3001*60,31,25,true,targets,powers);
  FakeFS::writeLimit=8;assert(!store.save(history.at(history.size()-1),probes));FakeFS::writeLimit=SIZE_MAX;

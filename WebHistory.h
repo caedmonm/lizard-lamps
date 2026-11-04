@@ -6,7 +6,7 @@ const char WebHistory[] PROGMEM = R"JS(
   const $=id=>document.getElementById(id),chart=$('history-chart');
   if(!chart)return;
   const windowControl=$('history-window'),position=$('history-position'),reading=$('history-reading');
-  const retention=48*60*60*1000,interval=60*1000;
+  const retention=24*60*60*1000,interval=60*1000;
   const format=t=>new Date(t).toLocaleString('en-GB',{timeZone:'Europe/London',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZoneName:'short'});
   let samples=[],visible=[],anchor=Date.now(),end=anchor,latest=true,selected=null,chartWidth=800;
   const series=[
@@ -93,17 +93,36 @@ const char WebHistory[] PROGMEM = R"JS(
     const rect=chart.getBoundingClientRect(),time=end-duration()+((event.clientX-rect.left)/rect.width*chartWidth-52)/(chartWidth-110)*duration();
     let index=0;visible.forEach((s,i)=>{if(Math.abs(s.time-time)<Math.abs(visible[index].time-time))index=i});inspect(index);
   });
+  async function loadPage(before){
+    // Allow time for the single-client server to finish another response first.
+    const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),15000);
+    try{
+      const response=await fetch('/api/history?paged=1'+(before?'&before='+before:''),{credentials:'same-origin',cache:'no-store',signal:abort.signal});
+      if(!response.ok)throw new Error(response.status===401?'Please sign in again.':'History could not be loaded.');
+      return await response.json();
+    }catch(error){
+      if(abort.signal.aborted)throw new Error('The controller took too long to send history. Check the Wi-Fi connection.');
+      throw error;
+    }finally{clearTimeout(timeout)}
+  }
   async function refresh(){
     if(!document.hidden){
-      const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),5000);
       try{
-        const response=await fetch('/api/history',{credentials:'same-origin',cache:'no-store',signal:abort.signal});
-        if(!response.ok)throw new Error(response.status===401?'Please sign in again.':'History could not be loaded.');
-        const data=await response.json();anchor=data.nowEpoch?data.nowEpoch*1000:Date.now();if(latest){end=anchor;selected=null}
-        samples=data.samples.map(s=>({time:anchor-s[0]*1000,values:[...s.slice(1,5),s[9]??null,s[10]??null]}));draw();
+        let before=0,loaded=[],data,firstAnchor;
+        do{
+          if(document.hidden){setTimeout(refresh,60000);return}
+          data=await loadPage(before);
+          const pageAnchor=data.nowEpoch?data.nowEpoch*1000:Date.now();
+          if(firstAnchor===undefined)firstAnchor=pageAnchor;
+          loaded=data.samples.map(s=>({time:pageAnchor-s[0]*1000,values:[...s.slice(1,5),s[9]??null,s[10]??null]})).concat(loaded);
+          const next=data.nextBefore||0;
+          if(next && ((before && next>=before) || !data.samples.length))throw new Error('History could not be loaded.');
+          before=next;
+        }while(before);
+        anchor=firstAnchor;if(latest){end=anchor;selected=null}
+        samples=loaded;draw();
         $('history-message').textContent=data.clockValid===false?'Waiting for a valid controller clock. Saved history will appear after time synchronization.':data.storageHealthy===false?'Flash storage unavailable: new readings may be lost on restart.':samples.length?'Readings are snapshots, not averages. Missing readings appear as gaps.':'Waiting for the first reading. Logging continues while this page is closed.';
       }catch(error){$('history-message').textContent='History unavailable · '+error.message+' Displayed history may be out of date. Retrying automatically.'}
-      finally{clearTimeout(timeout)}
     }
     setTimeout(refresh,60000);
   }
