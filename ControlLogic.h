@@ -77,26 +77,6 @@ public:
     return demand;
   }
 };
-// Let fresh samples continue updating PI state, but avoid retargeting the lamp
-// on every temperature step. Protective shutdowns reset this hold immediately.
-class ScheduledDemandHold {
-  int lamp = -1, power = 0;
-  uint32_t changedAt = 0;
-public:
-  static constexpr uint32_t IntervalMs = 5000;
-  void reset() { lamp = -1; power = 0; }
-  int update(bool enabled, int selected, int demand, uint32_t now) {
-    if (!enabled || selected < 0 || selected > 1 || demand < 0 || demand > 100) {
-      reset(); return 0;
-    }
-    if (lamp != selected || uint32_t(now-changedAt) >= IntervalMs) {
-      if (lamp != selected || power != demand) changedAt = now;
-      lamp = selected;
-      power = demand;
-    }
-    return power;
-  }
-};
 // Time-based output smoothing; faults bypass fading and clear all transition state.
 struct LampOutput { int lamp; int percent; };
 class LampFader {

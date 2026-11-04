@@ -33,23 +33,6 @@ int main() {
   assert(validTarget(5) && validTarget(40));
   assert(validFadeSeconds(0.1f)&&validFadeSeconds(300));
   for (float bad : {NAN,INFINITY,0.0f,300.1f}) assert(!validFadeSeconds(bad));
-  // Routine target changes are held for five seconds, using the latest demand.
-  ScheduledDemandHold demandHold;
-  assert(demandHold.update(true,0,30,100)==30);
-  for(uint32_t now=101;now<5100;++now) assert(demandHold.update(true,0,now%100,now)==30);
-  assert(demandHold.update(true,0,42,5100)==42);
-  assert(demandHold.update(true,0,0,5101)==42); // Ordinary demand reductions also wait.
-  assert(demandHold.update(true,0,0,10100)==0);
-  assert(demandHold.update(true,0,0,20100)==0); // An unchanged target does not renew the wait.
-  assert(demandHold.update(true,0,60,20101)==60);
-  assert(demandHold.update(false,0,60,20102)==0); // Fault/ceiling shutdown bypasses the hold.
-  assert(demandHold.update(true,0,20,20103)==20); // Fresh demand after a reset is immediate.
-  assert(demandHold.update(true,1,80,20104)==80); // Period changes do not carry old demand.
-  demandHold.reset();
-  const uint32_t wrap=UINT32_MAX-2000;
-  assert(demandHold.update(true,0,35,wrap)==35);
-  assert(demandHold.update(true,0,75,wrap+4999)==35);
-  assert(demandHold.update(true,0,75,wrap+5000)==75);
   // Configurable smoothing: default one second, half-second midpoint, immediate fault off.
   LampFader defaults;
   defaults.update(true,0,100,0);defaults.update(true,0,100,20);

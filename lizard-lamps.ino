@@ -21,7 +21,6 @@ float temperatures[2] = {NAN, NAN};
 unsigned long lastReading = 0;
 bool sensorReadOK = false;
 Control::HeatingController heatingController;
-Control::ScheduledDemandHold scheduledDemandHold;
 Control::LampFader lampFader;
 Control::LampOutput scheduledOutput = {-1, 0};
 Control::MinimumTemperatureController minimumController;
@@ -122,7 +121,6 @@ void loop() {
     // Preserve controller/fade state through brief log writes; resume the existing ramp.
     if (!healthy || !online) {
       heatingController.reset();
-      scheduledDemandHold.reset();
       scheduledOutput = lampFader.update(false, selected, 0, millis());
     } else heatingController.pause(lastReading);
     applyPower(0, 0);
@@ -144,9 +142,8 @@ void loop() {
   bool floorActive = hardwareHealthy && floor.mode != Control::FloorMode::Normal;
   if (floorActive) heatingController.reset(); // Floor output must not accumulate scheduled demand.
   bool targetLimited = enabled && !floorActive && Control::targetsExceeded(temperatures[0], temperatures[1], config.targets[selected]);
-  const int heldPower = scheduledDemandHold.update(enabled && !floorActive && !targetLimited, selected, power, millis());
   Control::LampOutput output = lampFader.update((enabled || test.active) && !floorActive && !targetLimited,
-                                                test.active ? test.lamp : selected, test.active ? test.percent : heldPower, millis(),
+                                                test.active ? test.lamp : selected, test.active ? test.percent : power, millis(),
                                                 test.active ? 0 : config.dimmingEnabled ? uint32_t(config.fadeSeconds*1000) : 0);
   scheduledOutput = output;
   int day = floorActive ? floor.day : (output.lamp == 0 ? output.percent : 0);
