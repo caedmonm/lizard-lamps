@@ -18,6 +18,7 @@ struct Rig {
 void simulate(float gain, float timeConstant, int delaySeconds) {
   Rig rig;
   Control::LampFader fader;
+  Control::ScheduledDemandHold hold;
   std::vector<float> delay(delaySeconds + 1, 0);
   float temperature = 20, maximum = 20;
   int lowest = 100, highest = 0;
@@ -28,6 +29,7 @@ void simulate(float gain, float timeConstant, int delaySeconds) {
     float measured = std::round(temperature * 16) / 16;
     int demand = rig.controller.update(true, 0, measured, 21.8f, rig.targets, 3, 300,
                                       uint32_t(second * 1000), rig.applied);
+    demand = hold.update(!Control::targetsExceeded(measured, 21.8f, rig.targets[0]), 0, demand, uint32_t(second*1000));
     for (int tick = 0; tick < 1000; tick += 20) {
       auto output = fader.update(!Control::targetsExceeded(measured, 21.8f, rig.targets[0]), 0, demand,
                                 uint32_t(second * 1000 + tick), 1000);
@@ -54,6 +56,7 @@ void simulateTwoProbes(float baskingGain, float ambientGain) {
   Rig rig;
   rig.targets[0][1] = 25;
   Control::LampFader fader;
+  Control::ScheduledDemandHold hold;
   std::vector<float> delay(21, 0);
   float temperatures[2] = {20, 20};
   const float gains[2] = {baskingGain, ambientGain};
@@ -64,6 +67,7 @@ void simulateTwoProbes(float baskingGain, float ambientGain) {
     for (int i = 0; i < 2; ++i) measured[i] = std::round(temperatures[i]*16)/16;
     int demand = rig.controller.update(true, 0, measured[0], measured[1], rig.targets, 3, 300,
                                       uint32_t(second*1000), rig.applied);
+    demand = hold.update(!Control::targetsExceeded(measured[0], measured[1], rig.targets[0]), 0, demand, uint32_t(second*1000));
     for (int tick = 0; tick < 1000; tick += 20)
       rig.applied = fader.update(!Control::targetsExceeded(measured[0], measured[1], rig.targets[0]),
                                 0, demand, uint32_t(second*1000+tick)).percent;

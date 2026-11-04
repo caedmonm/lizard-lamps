@@ -20,7 +20,7 @@ void runFor(uint32_t ms) {
 }
 void read(float basking, float ambient = 21.8f) {
   sensors.readings[0] = basking; sensors.readings[1] = ambient;
-  runFor(2100); // A fresh conversion plus the default fade.
+  runFor(7100); // Fresh conversion, the five-second target hold and the default fade.
 }
 int main() {
   setenv("TZ", "UTC0", 1); tzset();
@@ -32,6 +32,24 @@ int main() {
   deviceConfig.targets[1][0]=32; deviceConfig.targets[1][1]=21;
   read(31.5f);
   assert(deviceStatus.power >= 16 && deviceStatus.power <= 18 && lamp2.duty == 0);
+  // No fade: sensor-driven retargeting still waits five seconds in the real loop.
+  deviceConfig.dimmingEnabled=false;
+  scheduledDemandHold.reset();heatingController.reset();
+  runFor(100);
+  const int heldPower=deviceStatus.power;
+  sensors.readings[0]=31;
+  runFor(2500);assert(deviceStatus.power==heldPower);
+  runFor(3500);assert(deviceStatus.power>heldPower);
+  // Protective actions must not wait for the next routine brightness change.
+  temperatures[0]=33;temperatures[1]=22;lastReading=testMillis;
+  conversionStarted=testMillis;conversionPending=true;
+  loop();assert(deviceStatus.targetLimited&&deviceStatus.power==0);
+  read(31.5f);
+  temperatures[0]=14;temperatures[1]=23;lastReading=testMillis;
+  conversionStarted=testMillis;conversionPending=true;
+  loop();assert(deviceStatus.floorMode==Control::FloorMode::NightHold&&lamp1.duty==0&&lamp2.duty==1);
+  deviceConfig.dimmingEnabled=true;
+  scheduledDemandHold.reset();heatingController.reset();read(31.5f);
   runFor(300000);
   read(32);
   int holding = deviceStatus.power;
